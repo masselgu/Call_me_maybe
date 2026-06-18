@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict
 
 from src.llm_client import LlmClient
@@ -24,33 +25,28 @@ class ConstrainedChoiceDecoder(BaseModel):
     llm: LlmClient
 
     def choose(self, context: str, choices: list[str]) -> str:
-        """Choose one string by constraining every generated token.
+        """Choose the candidate with the highest total log-probability.
 
-        The model still decides each token from its logits. Impossible
-        continuations are removed. The choices are suffixed with a newline
-        sentinel internally so every completion has a clear end.
+        Each candidate is scored token-by-token using the model logits.
+        Invalid tokens are ignored because scoring is limited to complete
+        candidate sequences only.
         """
         if not choices:
             raise ValueError("cannot decode from an empty choice list")
+        if len(choices) == 1:
+            return choices[0]
 
         encoded_choices: list[EncodedChoice] = self._encode_choices(choices)
         context_ids: list[int] = self.llm.encode(context)
-        generated: list[int] = []
 
-        while True:
-            exact: EncodedChoice | None
-            exact = self._find_exact(encoded_choices, generated)
-            if exact is not None:
-                return exact.text
-
-            valid_tokens: set[int]
-            valid_tokens = self._valid_next_tokens(encoded_choices, generated)
-            if not valid_tokens:
-                message: str = "constrained decoding reached a dead end"
-                raise ValueError(message)
-
-            logits: list[float] = self.llm.logits(context_ids + generated)
-            generated.append(self._best_valid_token(logits, valid_tokens))
+        best_choice: str = encoded_choices[0].text
+        best_score: float = float("-inf")
+        for choice in encoded_choices:
+            score: float = self._score_sequence(context_ids, choice.token_ids)
+            if score > best_score:
+                best_score = score
+                best_choice = choice.text
+        return best_choice
 
     def _encode_choices(self, choices: list[str]) -> list[EncodedChoice]:
         """Encode choices and make them prefix-safe."""
@@ -66,44 +62,23 @@ class ConstrainedChoiceDecoder(BaseModel):
             )
         return encoded
 
-    @staticmethod
-    def _find_exact(
-        choices: list[EncodedChoice],
-        generated: list[int],
-    ) -> EncodedChoice | None:
-        """Return the completed choice, if generation is complete."""
-        generated_tuple: tuple[int, ...] = tuple(generated)
-        for choice in choices:
-            if choice.token_ids == generated_tuple:
-                return choice
-        return None
-
-    @staticmethod
-    def _valid_next_tokens(
-        choices: list[EncodedChoice],
-        generated: list[int],
-    ) -> set[int]:
-        """Find every token that keeps at least one choice valid."""
-        prefix: tuple[int, ...] = tuple(generated)
-        valid: set[int] = set()
-        for choice in choices:
-            if choice.token_ids[: len(prefix)] == prefix:
-                if len(choice.token_ids) > len(prefix):
-                    valid.add(choice.token_ids[len(prefix)])
-        return valid
-
-    @staticmethod
-    def _best_valid_token(logits: list[float], valid_tokens: set[int]) -> int:
-        """Pick the highest-logit token among valid next tokens."""
-        best_token: int | None = None
-        best_score: float = float("-inf")
-        for token_id in valid_tokens:
+    def _score_sequence(
+        self,
+        context_ids: list[int],
+        choice_ids: tuple[int, ...],
+    ) -> float:
+        """Score one complete candidate using summed log-probabilities."""
+        ids: list[int] = list(context_ids)
+        total: float = 0.0
+        for token_id in choice_ids:
+            logits: np.ndarray = np.array(
+                self.llm.logits(ids),
+                dtype=np.float64,
+            )
             if token_id >= len(logits):
-                continue
-            score: float = logits[token_id]
-            if best_token is None or score > best_score:
-                best_token = token_id
-                best_score = score
-        if best_token is None:
-            raise ValueError("no valid token was present in model logits")
-        return best_token
+                return float("-inf")
+            shifted: np.ndarray = logits - np.max(logits)
+            log_probs: np.ndarray = shifted - np.log(np.sum(np.exp(shifted)))
+            total += float(log_probs[token_id])
+            ids.append(token_id)
+        return total

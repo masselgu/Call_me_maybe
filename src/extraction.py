@@ -12,6 +12,52 @@ from src.models import FunctionDefinition, ParameterDefinition
 NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 QUOTED_RE = re.compile(r'"([^"]*)"|\'([^\']*)\'')
 WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+GREET_TAIL_RE = re.compile(r"\bgreet\s+(.+)$", re.I)
+REVERSE_TAIL_RE = re.compile(
+    r"\breverse\s+(?:the\s+string\s+)?(.+)$",
+    re.I,
+)
+SUBSTITUTE_WORD_RE = re.compile(
+    r"\b(?:word|words)\s+'([^']+)'",
+    re.I,
+)
+SUBSTITUTE_WITH_QUOTED_RE = re.compile(
+    r"\bwith\s+'([^']+)'",
+    re.I,
+)
+IN_QUOTED_RE = re.compile(r"\bin\s+'([^']+)'", re.I)
+WITH_TOKEN_RE = re.compile(r"\bwith\s+([A-Za-z0-9_*]+)\b", re.I)
+IN_DOUBLE_QUOTED_RE = re.compile(r'\bin\s+"([^"]+)"', re.I)
+
+COMMON_WORDS: set[str] = {
+    "a",
+    "an",
+    "all",
+    "and",
+    "calculate",
+    "for",
+    "fun",
+    "greet",
+    "in",
+    "is",
+    "of",
+    "old",
+    "on",
+    "or",
+    "replace",
+    "return",
+    "reverse",
+    "root",
+    "square",
+    "string",
+    "substitute",
+    "sum",
+    "the",
+    "what",
+    "with",
+    "word",
+    "years",
+}
 
 
 def candidate_json_values(
@@ -19,34 +65,49 @@ def candidate_json_values(
     function: FunctionDefinition,
     parameter_name: str,
     parameter: ParameterDefinition,
+    already_selected: dict[str, Any] | None = None,
 ) -> list[str]:
     """Return valid JSON literals for one parameter."""
+    selected: dict[str, Any] = already_selected or {}
     values: list[Any]
     if parameter.type in {"number", "integer"}:
-        values = _number_values(prompt, parameter.type == "integer")
+        values = _number_values(prompt, parameter.type == "integer", selected)
     elif parameter.type == "boolean":
         values = _boolean_values(prompt)
     else:
-        values = _string_values(prompt, function, parameter_name)
+        values = _string_values(prompt, parameter_name, selected)
 
     return _dedupe_json(values)
 
 
-def _number_values(prompt: str, integer: bool) -> list[Any]:
-    """Extract number candidates from the prompt."""
+def _number_values(
+    prompt: str,
+    integer: bool,
+    already_selected: dict[str, Any],
+) -> list[Any]:
+    """Extract number candidates and avoid reusing selected numbers."""
     values: list[Any] = []
     for match in NUMBER_RE.finditer(prompt):
         raw: str = match.group(0)
         try:
-            if integer:
-                values.append(int(float(raw)))
-            else:
-                values.append(float(raw))
+            value: Any = int(float(raw)) if integer else float(raw)
         except ValueError:
             continue
-    if not values:
-        values.append(0 if integer else 0.0)
-    return values
+        values.append(value)
+
+    used_numbers: set[Any] = {
+        value
+        for value in already_selected.values()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    unused: list[Any] = [
+        value for value in values if value not in used_numbers
+    ]
+    if unused:
+        return unused
+    if values:
+        return values
+    return [0 if integer else 0.0]
 
 
 def _boolean_values(prompt: str) -> list[Any]:
@@ -64,32 +125,95 @@ def _boolean_values(prompt: str) -> list[Any]:
 
 def _string_values(
     prompt: str,
-    function: FunctionDefinition,
     parameter_name: str,
+    already_selected: dict[str, Any],
 ) -> list[Any]:
-    """Build string candidates from quoted spans and prompt hints."""
-    quoted_values: list[str] = _quoted_strings(prompt)
+    """Build string candidates from prompt structure and parameter role."""
     lowered_name: str = parameter_name.lower()
-    values: list[str] = []
-    if "source" in lowered_name or lowered_name in {"s", "text", "string"}:
-        values.extend(sorted(quoted_values, key=len, reverse=True))
+    quoted_values: list[str] = _quoted_strings(prompt)
+    used_strings: set[str] = {
+        str(value)
+        for value in already_selected.values()
+        if isinstance(value, str)
+    }
+
+    if lowered_name in {"name"}:
+        values = _name_values(prompt)
+    elif "source" in lowered_name or lowered_name in {"s", "text", "string"}:
+        values = _source_string_values(prompt, quoted_values)
+    elif "regex" in lowered_name or "pattern" in lowered_name:
+        values = _regex_values(prompt, quoted_values)
+    elif "replace" in lowered_name or "replacement" in lowered_name:
+        values = _replacement_param_values(prompt, quoted_values)
     else:
-        values.extend(quoted_values)
-    values.extend(_tail_phrases(prompt))
-    values.extend(_regex_like_values(prompt))
-    values.extend(_replacement_values(prompt))
+        values = quoted_values + _tail_phrases(prompt) + _word_values(prompt)
+
+    filtered: list[str] = [
+        value
+        for value in values
+        if value not in used_strings and _is_useful_string(value)
+    ]
+    if filtered:
+        return filtered
+    if values:
+        return values
+    return [""]
+
+
+def _name_values(prompt: str) -> list[str]:
+    """Extract likely person names from greeting-style prompts."""
+    values: list[str] = []
+    greet_match: re.Match[str] | None = GREET_TAIL_RE.search(prompt)
+    if greet_match is not None:
+        values.append(greet_match.group(1).strip(" .?!'\""))
     values.extend(_word_values(prompt))
+    return values
 
-    if "regex" in lowered_name or "pattern" in lowered_name:
-        values = _prioritize_regex_values(prompt, values)
-    if "replace" in lowered_name or "replacement" in lowered_name:
-        values = _prioritize_replacement_values(prompt, values)
 
-    if not values:
-        values.append("")
+def _source_string_values(
+    prompt: str,
+    quoted_values: list[str],
+) -> list[str]:
+    """Extract the text to transform, preferring the longest quoted span."""
+    values: list[str] = sorted(quoted_values, key=len, reverse=True)
+    in_match: re.Match[str] | None = IN_QUOTED_RE.search(prompt)
+    if in_match is not None:
+        values.insert(0, in_match.group(1))
+    in_double_match: re.Match[str] | None = IN_DOUBLE_QUOTED_RE.search(prompt)
+    if in_double_match is not None:
+        values.insert(0, in_double_match.group(1))
+    return values
 
-    description_words: list[str] = WORD_RE.findall(function.description)
-    values.extend(description_words[:3])
+
+def _regex_values(prompt: str, quoted_values: list[str]) -> list[str]:
+    """Extract regex patterns from prompt wording or substitution targets."""
+    values: list[str] = _regex_like_values(prompt)
+    substitute_match: re.Match[str] | None = SUBSTITUTE_WORD_RE.search(prompt)
+    if substitute_match is not None:
+        values.append(substitute_match.group(1))
+    if "replace" in prompt.lower() and len(quoted_values) == 1:
+        values.extend(quoted_values)
+    return values
+
+
+def _replacement_param_values(
+    prompt: str,
+    quoted_values: list[str],
+) -> list[str]:
+    """Extract replacement literals from trailing or quoted values."""
+    values: list[str] = []
+    substitute_match: re.Match[str] | None = SUBSTITUTE_WITH_QUOTED_RE.search(
+        prompt,
+    )
+    if substitute_match is not None:
+        values.append(substitute_match.group(1))
+    with_match: re.Match[str] | None = WITH_TOKEN_RE.search(prompt)
+    if with_match is not None:
+        values.append(_normalize_replacement(with_match.group(1)))
+    if "asterisk" in prompt.lower():
+        values.append("*")
+    if len(quoted_values) >= 2:
+        values.append(quoted_values[1])
     return values
 
 
@@ -104,15 +228,10 @@ def _quoted_strings(prompt: str) -> list[str]:
 
 
 def _tail_phrases(prompt: str) -> list[str]:
-    """Extract useful unquoted tails, such as names in greeting prompts."""
+    """Extract useful unquoted tails from common prompt patterns."""
     values: list[str] = []
-    patterns: list[str] = [
-        r"\bgreet\s+(.+)$",
-        r"\breverse\s+(?:the\s+string\s+)?(.+)$",
-        r"\bwith\s+([A-Za-z0-9_*+-]+)$",
-    ]
-    for pattern in patterns:
-        match: re.Match[str] | None = re.search(pattern, prompt, re.I)
+    for pattern in (GREET_TAIL_RE, REVERSE_TAIL_RE):
+        match: re.Match[str] | None = pattern.search(prompt)
         if match is not None:
             values.append(match.group(1).strip(" .?!'\""))
     return values
@@ -131,19 +250,6 @@ def _regex_like_values(prompt: str) -> list[str]:
     return values
 
 
-def _replacement_values(prompt: str) -> list[str]:
-    """Infer replacement candidates from common wording."""
-    values: list[str] = []
-    with_match: re.Match[str] | None
-    with_match = re.search(r"\bwith\s+([A-Za-z0-9_*+-]+)", prompt, re.I)
-    if with_match is not None:
-        raw: str = with_match.group(1).strip(" .?!'\"")
-        values.append(_normalize_replacement(raw))
-    if "asterisk" in prompt.lower():
-        values.append("*")
-    return values
-
-
 def _normalize_replacement(value: str) -> str:
     """Normalize natural replacement names into literal strings."""
     if value.lower() in {"asterisk", "asterisks"}:
@@ -152,48 +258,21 @@ def _normalize_replacement(value: str) -> str:
 
 
 def _word_values(prompt: str) -> list[str]:
-    """Return word candidates for simple unquoted string arguments."""
-    ignored: set[str] = {
-        "what",
-        "is",
-        "the",
-        "sum",
-        "of",
-        "and",
-        "greet",
-        "reverse",
-        "string",
-        "replace",
-        "all",
-        "with",
-        "in",
-        "calculate",
-        "square",
-        "root",
-        "substitute",
-        "word",
-    }
+    """Return meaningful word candidates for unquoted string arguments."""
     return [
         word
         for word in WORD_RE.findall(prompt)
-        if word.lower() not in ignored
+        if word.lower() not in COMMON_WORDS and len(word) > 1
     ]
 
 
-def _prioritize_regex_values(prompt: str, values: list[str]) -> list[str]:
-    """Move regex-looking candidates before generic strings."""
-    regex_values: list[str] = _regex_like_values(prompt)
-    quoted: list[str] = _quoted_strings(prompt)
-    return regex_values + quoted + values
-
-
-def _prioritize_replacement_values(
-    prompt: str,
-    values: list[str],
-) -> list[str]:
-    """Move likely replacement candidates before generic strings."""
-    replacements: list[str] = _replacement_values(prompt)
-    return replacements + values
+def _is_useful_string(value: str) -> bool:
+    """Drop noisy one-letter or generic fragments from string candidates."""
+    if not value:
+        return True
+    if len(value) == 1 and value.lower() not in {"*"}:
+        return False
+    return value.lower() not in COMMON_WORDS
 
 
 def _dedupe_json(values: list[Any]) -> list[str]:

@@ -72,7 +72,12 @@ class FunctionCallingPipeline(BaseModel):
                 function,
                 name,
                 definition,
+                already_selected=parameters,
             )
+            if not json_choices:
+                raise ValueError(
+                    f"no valid candidates for parameter {name!r}",
+                )
             context: str = self._parameter_context(
                 prompt,
                 function,
@@ -115,14 +120,14 @@ class FunctionCallingPipeline(BaseModel):
             [
                 "Extract exactly one JSON literal for the parameter.",
                 f"Function: {function.name}",
-                f"Description: {function.description}",
-                f"User request: {prompt}",
-                f"Parameter: {name}",
+                f"Parameter name: {name}",
                 f"Parameter type: {definition.type}",
-                f"Already selected: {json.dumps(previous)}",
+                f"User request: {prompt}",
+                f"Already selected parameters: {json.dumps(previous)}",
+                "Pick one value from the valid JSON choices below.",
                 "Valid JSON choices:",
                 ", ".join(json_choices),
-                "Chosen JSON literal: ",
+                "Answer:",
             ],
         )
 
