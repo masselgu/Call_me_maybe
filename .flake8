@@ -1,0 +1,7 @@
+[flake8]
+exclude =
+    .git,
+    .uv-bootstrap,
+    .venv,
+    __pycache__,
+    llm_sdk
