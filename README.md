@@ -52,19 +52,17 @@ during execution.
 The solution uses finite-choice constrained decoding. For every decision, the
 program builds the full set of valid completions before calling the model.
 
-For function selection, the valid completions are the function names from
-`functions_definition.json`. The decoder tokenizes each function name plus a
-newline sentinel. At each generation step it asks the model for logits, removes
-every token that cannot continue at least one valid function name, and selects the
-highest-logit remaining token. Generation stops only when one complete valid
-function name has been produced.
+For function selection, valid completions are the function names from
+`functions_definition.json`. Each name is tokenized with `encode()`. The
+vocabulary JSON loaded from the SDK maps token ids to token strings. At each
+generation step the decoder asks the model for logits, keeps only tokens that
+can continue a valid function name, sets all other logits to negative infinity,
+and selects the highest remaining score.
 
-For parameters, the program first builds schema-compatible candidate values from
-the prompt: numbers for numeric fields, booleans for boolean fields, and quoted
-strings or prompt phrases for string fields. Each candidate is serialized as a JSON
-literal, then the same constrained decoder chooses one literal. The chosen value is
-parsed with `json.loads`, coerced to the declared parameter type, validated by
-Pydantic, and finally written with `json.dump`.
+For parameters, schema-compatible candidates are built from the prompt and
+tokenized with `encode()`. The same vocabulary JSON is used to validate token
+ids during token-by-token generation. Invalid tokens are masked before selection,
+so the model can only produce one valid JSON literal for the parameter.
 
 This means the model never freely emits the final JSON file. It can only choose
 among values that are already valid for the expected schema, so the output remains
@@ -76,9 +74,9 @@ All input and output structures are Pydantic models. This keeps invalid files,
 missing fields, unsupported parameter types, and extra output keys from silently
 passing through the pipeline.
 
-The LLM interaction is wrapped in a small `LlmClient` class. The rest of the code
-depends only on `encode` and `get_logits_from_input_ids`, so no private SDK
-attributes or methods are used.
+The LLM interaction is wrapped in a small `LlmClient` class. It loads the model
+vocabulary JSON through the SDK, then uses `encode`, `decode`, and
+`get_logits_from_input_ids` without accessing private SDK attributes.
 
 The implementation favors a compact candidate set instead of unconstrained JSON
 generation. This is faster and more reliable for a small model, while still letting

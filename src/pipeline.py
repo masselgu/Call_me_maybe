@@ -26,38 +26,70 @@ SKIP = {
 
 
 class ChoiceDecoder(BaseModel):
-    """Pick one value by scoring complete candidates with LLM logits."""
+    """Generate one valid choice token-by-token with masked logits."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     llm: LlmClient
 
     def choose(self, context: str, choices: list[str]) -> str:
-        """Return the highest-scoring valid choice."""
+        """Return the LLM-selected valid choice."""
         if not choices:
             raise ValueError("empty choice list")
         if len(choices) == 1:
             return choices[0]
-        context_ids = self.llm.encode(context)
-        best, best_score = choices[0], float("-inf")
-        for choice in choices:
-            score = self._score(context_ids, self.llm.encode(f"{choice}\n"))
-            if score > best_score:
-                best, best_score = choice, score
-        return best
 
-    def _score(self, context_ids: list[int], choice_ids: list[int]) -> float:
-        """Sum log-probabilities for one candidate sequence."""
-        ids = list(context_ids)
-        total = 0.0
-        for token_id in choice_ids:
-            logits = np.array(self.llm.logits(ids), dtype=np.float64)
-            if token_id >= len(logits):
-                return float("-inf")
-            shifted = logits - np.max(logits)
-            log_probs = shifted - np.log(np.sum(np.exp(shifted)))
-            total += float(log_probs[token_id])
-            ids.append(token_id)
-        return total
+        encoded_choices = [
+            (choice, self.llm.encode(f"{choice}\n"))
+            for choice in dict.fromkeys(choices)
+        ]
+        context_ids = self.llm.encode(context)
+        generated: list[int] = []
+
+        while True:
+            for choice, token_ids in encoded_choices:
+                if token_ids == generated:
+                    return choice
+
+            valid_tokens = self._valid_next_tokens(encoded_choices, generated)
+            generated.append(
+                self._pick_token(context_ids + generated, valid_tokens),
+            )
+
+    def _valid_next_tokens(
+        self,
+        encoded_choices: list[tuple[str, list[int]]],
+        generated: list[int],
+    ) -> set[int]:
+        """Find token ids that keep at least one candidate valid."""
+        valid: set[int] = set()
+        prefix_len = len(generated)
+        for _, token_ids in encoded_choices:
+            if token_ids[:prefix_len] != generated:
+                continue
+            if len(token_ids) <= prefix_len:
+                continue
+            token_id = token_ids[prefix_len]
+            if self.llm.vocabulary.has_id(token_id):
+                valid.add(token_id)
+        if not valid:
+            raise ValueError("constrained decoding reached a dead end")
+        return valid
+
+    def _pick_token(
+        self,
+        input_ids: list[int],
+        valid_tokens: set[int],
+    ) -> int:
+        """Mask invalid logits to negative infinity and pick the best token."""
+        logits = np.array(self.llm.logits(input_ids), dtype=np.float64)
+        masked = np.full_like(logits, float("-inf"))
+        for token_id in valid_tokens:
+            if token_id < len(logits):
+                masked[token_id] = logits[token_id]
+        best_token = int(np.argmax(masked))
+        if best_token not in valid_tokens:
+            raise ValueError("no valid token was present in model logits")
+        return best_token
 
 
 class FunctionCallingPipeline(BaseModel):
