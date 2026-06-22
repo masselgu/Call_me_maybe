@@ -1,9 +1,6 @@
 """Validated data models used by the function-calling pipeline."""
 
-from __future__ import annotations
-
 from typing import Any, Literal
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
