@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any
-
 from src.candidates import boolean_options, number_options, string_options
 from src.extract import Evidence, schema_words
 from src.models import FunctionDefinition, ParameterDefinition

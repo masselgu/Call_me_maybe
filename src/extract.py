@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import re
-
 from pydantic import BaseModel, Field
-
 from src.models import FunctionDefinition
 
 NUM = re.compile(r"[-+]?\d+(?:\.\d+)?")

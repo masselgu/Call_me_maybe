@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from typing import TypeVar
-
 from src.extract import Evidence
 from src.models import ParameterDefinition
 

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-
 from pydantic import BaseModel, PrivateAttr
-
 from src.decoder import ChoiceDecoder, Vocabulary
 from src.extract import Evidence, extract, schema_words
 from src.models import (
