@@ -3,26 +3,14 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
+from src.extract import Evidence, extract, schema_words, score, string_options
 from src.llm_client import LlmClient
-from src.models import FunctionCallResult
-from src.models import FunctionDefinition
-from src.models import ParameterDefinition
-from src.models import PromptItem
-
-NUM_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
-QUOTED_RE = re.compile(r'"([^"]*)"|\'([^\']*)\'')
-WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-SKIP = {
-    "a", "an", "all", "and", "calculate", "for", "fun", "greet", "in", "is",
-    "of", "old", "on", "or", "replace", "return", "reverse", "root", "square",
-    "string", "substitute", "sum", "the", "what", "with", "word", "years",
-}
+from src.models import FunctionCallResult, FunctionDefinition, PromptItem
 
 
 class ChoiceDecoder(BaseModel):
@@ -32,64 +20,48 @@ class ChoiceDecoder(BaseModel):
     llm: LlmClient
 
     def choose(self, context: str, choices: list[str]) -> str:
-        """Return the LLM-selected valid choice."""
         if not choices:
             raise ValueError("empty choice list")
         if len(choices) == 1:
             return choices[0]
-
-        encoded_choices = [
-            (choice, self.llm.encode(f"{choice}\n"))
-            for choice in dict.fromkeys(choices)
+        encoded = [
+            (c, self.llm.encode(f"{c}\n")) for c in dict.fromkeys(choices)
         ]
-        context_ids = self.llm.encode(context)
-        generated: list[int] = []
-
+        ctx = self.llm.encode(context)
+        out: list[int] = []
         while True:
-            for choice, token_ids in encoded_choices:
-                if token_ids == generated:
+            for choice, ids in encoded:
+                if ids == out:
                     return choice
+            valid = self._next(encoded, out)
+            out.append(self._pick(ctx + out, valid))
 
-            valid_tokens = self._valid_next_tokens(encoded_choices, generated)
-            generated.append(
-                self._pick_token(context_ids + generated, valid_tokens),
-            )
-
-    def _valid_next_tokens(
+    def _next(
         self,
-        encoded_choices: list[tuple[str, list[int]]],
-        generated: list[int],
+        encoded: list[tuple[str, list[int]]],
+        prefix: list[int],
     ) -> set[int]:
-        """Find token ids that keep at least one candidate valid."""
         valid: set[int] = set()
-        prefix_len = len(generated)
-        for _, token_ids in encoded_choices:
-            if token_ids[:prefix_len] != generated:
-                continue
-            if len(token_ids) <= prefix_len:
-                continue
-            token_id = token_ids[prefix_len]
-            if self.llm.vocabulary.has_id(token_id):
-                valid.add(token_id)
+        n = len(prefix)
+        for _, ids in encoded:
+            if ids[:n] == prefix and len(ids) > n:
+                tok = ids[n]
+                if self.llm.vocabulary.has_id(tok):
+                    valid.add(tok)
         if not valid:
             raise ValueError("constrained decoding reached a dead end")
         return valid
 
-    def _pick_token(
-        self,
-        input_ids: list[int],
-        valid_tokens: set[int],
-    ) -> int:
-        """Mask invalid logits to negative infinity and pick the best token."""
-        logits = np.array(self.llm.logits(input_ids), dtype=np.float64)
+    def _pick(self, ctx: list[int], valid: set[int]) -> int:
+        logits = np.array(self.llm.logits(ctx), dtype=np.float64)
         masked = np.full_like(logits, float("-inf"))
-        for token_id in valid_tokens:
-            if token_id < len(logits):
-                masked[token_id] = logits[token_id]
-        best_token = int(np.argmax(masked))
-        if best_token not in valid_tokens:
+        for tok in valid:
+            if tok < len(logits):
+                masked[tok] = logits[tok]
+        best = int(np.argmax(masked))
+        if best not in valid:
             raise ValueError("no valid token was present in model logits")
-        return best_token
+        return best
 
 
 class FunctionCallingPipeline(BaseModel):
@@ -102,209 +74,108 @@ class FunctionCallingPipeline(BaseModel):
     _decoder: ChoiceDecoder = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
-        """Initialize LLM helpers."""
         self._llm = LlmClient(model_name=self.model_name)
         self._decoder = ChoiceDecoder(llm=self._llm)
 
     def run(self, prompts: list[PromptItem]) -> list[FunctionCallResult]:
-        """Process all prompts."""
-        results: list[FunctionCallResult] = []
-        for item in prompts:
-            function = self._select_function(item.prompt)
-            results.append(
-                FunctionCallResult(
-                    prompt=item.prompt,
-                    name=function.name,
-                    parameters=self._extract(item.prompt, function),
-                ),
+        return [
+            FunctionCallResult(
+                prompt=item.prompt,
+                name=fn.name,
+                parameters=self._fill(item.prompt, fn, extract(item.prompt)),
             )
-        return results
+            for item in prompts
+            for fn in [self._pick(item.prompt, extract(item.prompt))]
+        ]
 
-    def _select_function(self, prompt: str) -> FunctionDefinition:
-        """Let the LLM choose a function name."""
+    def _pick(self, prompt: str, ev: Evidence) -> FunctionDefinition:
+        ranked = sorted(
+            self.functions,
+            key=lambda fn: score(fn, ev, prompt),
+            reverse=True,
+        )
+        ranked = [fn for fn in ranked if score(fn, ev, prompt) >= 0]
+        if not ranked:
+            raise ValueError(f"no function matches prompt: {prompt}")
+        best = score(ranked[0], ev, prompt)
+        if len(ranked) == 1 or (
+            len(ranked) > 1 and best > score(ranked[1], ev, prompt) + 5
+        ):
+            return ranked[0]
+        top = ranked[:3]
         lines = ["Pick one function name.", "Functions:"]
-        lines += [f"- {f.name}: {f.description}" for f in self.functions]
+        for fn in top:
+            sig = ", ".join(f"{k}:{v.type}" for k, v in fn.parameters.items())
+            lines.append(f"- {fn.name}: {fn.description} [{sig}]")
         lines += [f"Request: {prompt}", "Function:"]
         name = self._decoder.choose(
             "\n".join(lines),
-            [f.name for f in self.functions],
+            [fn.name for fn in top],
         )
-        for function in self.functions:
-            if function.name == name:
-                return function
-        raise ValueError(f"unknown function: {name}")
+        return next(fn for fn in top if fn.name == name)
 
-    def _extract(
+    def _fill(
         self,
         prompt: str,
-        function: FunctionDefinition,
+        fn: FunctionDefinition,
+        ev: Evidence,
     ) -> dict[str, Any]:
-        """Extract each parameter with constrained decoding."""
+        vocab = schema_words(fn)
         params: dict[str, Any] = {}
-        for name, spec in function.parameters.items():
-            choices = _candidates(prompt, name, spec, params)
-            context = "\n".join([
-                f"Function: {function.name}",
-                f"Parameter: {name} ({spec.type})",
+        used: set[str] = set()
+        num_i = 0
+        quotes_left = sorted(ev.quotes, key=len, reverse=True)
+
+        for name, spec in fn.parameters.items():
+            if spec.type in {"number", "integer"}:
+                if num_i >= len(ev.numbers):
+                    raise ValueError(f"no number for {name}")
+                val = ev.numbers[num_i]
+                params[name] = (
+                    int(val) if spec.type == "integer" else float(val)
+                )
+                num_i += 1
+                continue
+
+            if spec.type == "boolean":
+                lower = prompt.lower()
+                opts = []
+                if any(x in lower for x in ("true", "yes", "on")):
+                    opts.append("true")
+                if any(x in lower for x in ("false", "no", "off")):
+                    opts.append("false")
+                opts = opts or ["true", "false"]
+                pick = opts[0] if len(opts) == 1 else self._decoder.choose(
+                    f"Request: {prompt}\nChoices: {', '.join(opts)}\nAnswer:",
+                    opts,
+                )
+                params[name] = pick == "true"
+                continue
+
+            bias: list[str] = []
+            if quotes_left:
+                bias = [quotes_left.pop(0)]
+            opts = string_options(prompt, spec, ev, used, vocab, bias)
+            if not opts:
+                raise ValueError(f"no candidates for {name}")
+            choices = [json.dumps(v, ensure_ascii=False) for v in opts]
+            line = f"Parameter: {name} ({spec.type})"
+            if spec.description:
+                line += f" — {spec.description}"
+            ctx = "\n".join([
+                f"Function: {fn.name}",
+                line,
                 f"Request: {prompt}",
                 f"Selected: {json.dumps(params)}",
                 f"Choices: {', '.join(choices)}",
                 "Answer:",
             ])
-            value = json.loads(self._decoder.choose(context, choices))
-            params[name] = _coerce(value, spec)
+            pick = (
+                choices[0]
+                if len(choices) == 1
+                else self._decoder.choose(ctx, choices)
+            )
+            params[name] = json.loads(pick)
+            used.add(str(params[name]))
+
         return params
-
-
-def _quoted(prompt: str) -> list[str]:
-    """Return quoted substrings from the prompt."""
-    return [
-        m.group(1) if m.group(1) is not None else m.group(2) or ""
-        for m in QUOTED_RE.finditer(prompt)
-    ]
-
-
-def _words(prompt: str) -> list[str]:
-    """Return meaningful words from the prompt."""
-    return [
-        word for word in WORD_RE.findall(prompt)
-        if word.lower() not in SKIP and len(word) > 1
-    ]
-
-
-def _numbers(
-    prompt: str,
-    integer: bool,
-    selected: dict[str, Any],
-) -> list[Any]:
-    """Return unused numeric literals found in the prompt."""
-    values: list[Any] = []
-    for match in NUM_RE.finditer(prompt):
-        raw = match.group(0)
-        values.append(int(float(raw)) if integer else float(raw))
-    used = {
-        value for value in selected.values()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-    }
-    unused = [value for value in values if value not in used]
-    if unused:
-        return unused
-    if values:
-        return values
-    return [0 if integer else 0.0]
-
-
-def _strings(
-    prompt: str,
-    name: str,
-    selected: dict[str, Any],
-) -> list[Any]:
-    """Build string candidates based on parameter role."""
-    key = name.lower()
-    quoted = _quoted(prompt)
-    lower = prompt.lower()
-    values: list[Any] = []
-
-    if key == "name":
-        match = re.search(r"\bgreet\s+(.+)$", prompt, re.I)
-        if match:
-            values.append(match.group(1).strip(" .?!'\""))
-        match = re.search(r"\bname\s+is\s+(\w+)", prompt, re.I)
-        if match:
-            values.append(match.group(1))
-        values.extend(_words(prompt))
-    elif "source" in key or key in {"s", "text", "string"}:
-        values = sorted(quoted, key=len, reverse=True)
-        for pattern in (r"\bin\s+'([^']+)'", r'\bin\s+"([^"]+)"'):
-            match = re.search(pattern, prompt)
-            if match:
-                values.insert(0, match.group(1))
-    elif "regex" in key or "pattern" in key:
-        if "number" in lower or "digit" in lower:
-            values.append(r"\d+")
-        if "vowel" in lower:
-            values.append(r"[aeiouAEIOU]")
-        match = re.search(r"\bword\s+'([^']+)'", prompt, re.I)
-        if match:
-            values.append(match.group(1))
-    elif "replace" in key or "replacement" in key:
-        match = re.search(r"\bwith\s+'([^']+)'", prompt, re.I)
-        if match:
-            values.append(match.group(1))
-        match = re.search(r"\bwith\s+([A-Za-z0-9_*]+)", prompt, re.I)
-        if match:
-            token = match.group(1)
-            if token.lower() in {"asterisk", "asterisks"}:
-                values.append("*")
-            else:
-                values.append(token)
-        if "asterisk" in lower:
-            values.append("*")
-        if len(quoted) >= 2:
-            values.append(quoted[1])
-    else:
-        values = quoted + _words(prompt)
-
-    used = {
-        str(value)
-        for value in selected.values()
-        if isinstance(value, str)
-    }
-    clean = [
-        value for value in values
-        if str(value) not in used and _ok(str(value))
-    ]
-    return clean or values or [""]
-
-
-def _ok(value: str) -> bool:
-    """Filter noisy string fragments."""
-    if not value:
-        return True
-    if len(value) == 1 and value != "*":
-        return False
-    return value.lower() not in SKIP
-
-
-def _candidates(
-    prompt: str,
-    name: str,
-    spec: ParameterDefinition,
-    selected: dict[str, Any],
-) -> list[str]:
-    """Serialize unique JSON literals for one parameter."""
-    raw: list[Any]
-    if spec.type in {"number", "integer"}:
-        raw = _numbers(prompt, spec.type == "integer", selected)
-    elif spec.type == "boolean":
-        lower = prompt.lower()
-        bools: list[Any] = []
-        if any(item in lower for item in ("true", "yes", "on")):
-            bools.append(True)
-        if any(item in lower for item in ("false", "no", "off")):
-            bools.append(False)
-        raw = bools or [True, False]
-    else:
-        raw = _strings(prompt, name, selected)
-
-    seen: set[str] = set()
-    out: list[str] = []
-    for value in raw:
-        text = json.dumps(value, ensure_ascii=False)
-        if text not in seen:
-            seen.add(text)
-            out.append(text)
-    return out
-
-
-def _coerce(value: Any, spec: ParameterDefinition) -> Any:
-    """Cast a decoded JSON value to the schema type."""
-    if spec.type == "string":
-        return str(value)
-    if spec.type == "integer":
-        return int(value)
-    if spec.type == "number":
-        return float(value)
-    if spec.type == "boolean":
-        return bool(value)
-    raise ValueError(f"unsupported type: {spec.type}")

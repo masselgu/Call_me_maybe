@@ -1,28 +1,12 @@
 [
-  {
-    "prompt": "What is the sum of 2 and 3?"
-  },
-  {
-    "prompt": "What is the sum of 265 and 345?"
-  },
-  {
-    "prompt": "Greet shrek"
-  },
-  {
-    "prompt": "Greet john"
-  },
-  {
-    "prompt": "Reverse the string 'hello'"
-  },
-  {
-    "prompt": "Reverse the string 'world'"
-  },
-  {
-    "prompt": "What is the square root of 16?"
-  },
-  {
-    "prompt": "Calculate the square root of 144"
-  },
+  { "prompt": "What is the sum of 2 and 3?" },
+  { "prompt": "What is the sum of 265 and 345?" },
+  { "prompt": "Greet shrek" },
+  { "prompt": "Greet john" },
+  { "prompt": "Reverse the string 'hello'" },
+  { "prompt": "Reverse the string 'world'" },
+  { "prompt": "What is the square root of 16?" },
+  { "prompt": "Calculate the square root of 144" },
   {
     "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"
   },
@@ -32,7 +16,57 @@
   {
     "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'"
   },
+  { "prompt": "'iam here'" },
+  { "prompt": "What is the sum of 10, 20 and 30?" },
+  { "prompt": "Add 5 plus 7 plus 9" },
+  { "prompt": "What is 6 multiplied by 7?" },
+  { "prompt": "There are 42 items in the box" },
+  { "prompt": "The answer is 100" },
+  { "prompt": "Turn this feature on" },
+  { "prompt": "Set the flag to false" },
+  { "prompt": "Say hello to Maria" },
+  { "prompt": "Flip the text \"abc123\"" },
+  { "prompt": "What is 50 minus 8?" },
+  { "prompt": "Subtract 3 from 20" },
+  { "prompt": "Divide 100 by 4" },
+  { "prompt": "What is 81 divided by 9?" },
+  { "prompt": "Find the average of 12 and 18" },
+  { "prompt": "Compute the mean of 7.5 and 2.5" },
+  { "prompt": "What is the sum of 1, 2, 3 and 4?" },
+  { "prompt": "Add 11 plus 22 plus 33 plus 44" },
+  { "prompt": "What is the negative of 17?" },
+  { "prompt": "Negate the value 3.14" },
+  { "prompt": "Round 9.7 to the nearest integer" },
+  { "prompt": "Round the number 2.49" },
+  { "prompt": "Concatenate 'foo' and 'bar'" },
+  { "prompt": "Join the strings 'hello' and 'world'" },
+  { "prompt": "Convert 'cursor' to uppercase" },
+  { "prompt": "Make the text 'hello' uppercase" },
+  { "prompt": "Repeat 'ha' 3 times" },
+  { "prompt": "Say the word 'go' four times" },
+  { "prompt": "Are the strings 'abc' and 'abc' equal?" },
+  { "prompt": "Check if 'yes' equals 'no'" },
+  { "prompt": "Is 42 a positive number?" },
+  { "prompt": "Check whether -5 is positive" },
+  { "prompt": "Disable logging for this session" },
+  { "prompt": "Enable logging now" },
+  { "prompt": "Send 'good luck' to Alice" },
+  { "prompt": "Message Bob with 'see you soon'" },
   {
-    "prompt": "'iam here'"
-  }
+    "prompt": "In 'banana bread', replace 'ana' with 'ozo'"
+  },
+  {
+    "prompt": "Replace 'old' with 'new' in 'my old car is old'"
+  },
+  {
+    "prompt": "Extract digits from 'Order 404 confirmed on 2024'"
+  },
+  { "prompt": "Greet Priya" },
+  { "prompt": "What is 15 plus 25?" },
+  { "prompt": "Multiply 9 by 11" },
+  { "prompt": "Subtract 14 from 90" },
+  { "prompt": "Reverse the string 'racecar'" },
+  { "prompt": "'just a quote'" },
+  { "prompt": "Set the flag to true" },
+  { "prompt": "There are 7 items on the shelf" }
 ]

@@ -19,7 +19,8 @@
     "description": "Generate a greeting message for a person by name.",
     "parameters": {
       "name": {
-        "type": "string"
+        "type": "string",
+        "description": "Person name mentioned in the request"
       }
     },
     "returns": {
@@ -55,17 +56,261 @@
     "description": "Replace all occurrences matching a regex pattern in a string.",
     "parameters": {
       "source_string": {
-        "type": "string"
+        "type": "string",
+        "description": "The input text to search and replace within"
       },
       "regex": {
-        "type": "string"
+        "type": "string",
+        "description": "\\d+ for number sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
       },
       "replacement": {
+        "type": "string",
+        "description": "Replacement text such as a word, asterisk, or label"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_multiply_numbers",
+    "description": "Multiply two numbers and return the product.",
+    "parameters": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_count_items",
+    "description": "Store how many items were counted as a whole number.",
+    "parameters": {
+      "count": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "integer"
+    }
+  },
+  {
+    "name": "fn_set_flag",
+    "description": "Set a true or false flag value.",
+    "parameters": {
+      "enabled": {
+        "type": "boolean"
+      }
+    },
+    "returns": {
+      "type": "boolean"
+    }
+  },
+  {
+    "name": "fn_flip_text",
+    "description": "Reverse the characters in a text string.",
+    "parameters": {
+      "text": {
         "type": "string"
       }
     },
     "returns": {
       "type": "string"
     }
+  },
+  {
+    "name": "fn_subtract_numbers",
+    "description": "Subtract the second number from the first number.",
+    "parameters": {
+      "a": {
+        "type": "number",
+        "description": "The minuend; the number to subtract from"
+      },
+      "b": {
+        "type": "number",
+        "description": "The subtrahend; the number to subtract"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_add_three_numbers",
+    "description": "Add three numbers together and return their total sum.",
+    "parameters": {
+      "a": { "type": "number" },
+      "b": { "type": "number" },
+      "c": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_divide_numbers",
+    "description": "Divide the first number by the second number.",
+    "parameters": {
+      "dividend": {
+        "type": "number",
+        "description": "The number being divided"
+      },
+      "divisor": {
+        "type": "number",
+        "description": "The number to divide by"
+      }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_average_two",
+    "description": "Compute the average of exactly two numbers.",
+    "parameters": {
+      "x": { "type": "number" },
+      "y": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_add_four_numbers",
+    "description": "Add four numbers together and return their total.",
+    "parameters": {
+      "a": { "type": "number" },
+      "b": { "type": "number" },
+      "c": { "type": "number" },
+      "d": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_negate_number",
+    "description": "Return the negative of a single numeric value.",
+    "parameters": {
+      "value": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_round_to_integer",
+    "description": "Round a decimal number to the nearest whole integer.",
+    "parameters": {
+      "value": { "type": "number" }
+    },
+    "returns": { "type": "integer" }
+  },
+  {
+    "name": "fn_concat_strings",
+    "description": "Join two text strings together in order.",
+    "parameters": {
+      "left": {
+        "type": "string",
+        "description": "First text fragment"
+      },
+      "right": {
+        "type": "string",
+        "description": "Second text fragment"
+      }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_to_uppercase",
+    "description": "Convert a text string to uppercase letters.",
+    "parameters": {
+      "text": { "type": "string" }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_repeat_text",
+    "description": "Repeat a text string a given number of times.",
+    "parameters": {
+      "text": { "type": "string" },
+      "times": {
+        "type": "integer",
+        "description": "How many times to repeat the text"
+      }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_strings_equal",
+    "description": "Check whether two strings are exactly equal.",
+    "parameters": {
+      "first": { "type": "string" },
+      "second": { "type": "string" }
+    },
+    "returns": { "type": "boolean" }
+  },
+  {
+    "name": "fn_is_positive",
+    "description": "Check whether a number is greater than zero.",
+    "parameters": {
+      "value": { "type": "number" }
+    },
+    "returns": { "type": "boolean" }
+  },
+  {
+    "name": "fn_enable_logging",
+    "description": "Turn application logging on or off.",
+    "parameters": {
+      "active": {
+        "type": "boolean",
+        "description": "Whether logging should be active"
+      }
+    },
+    "returns": { "type": "boolean" }
+  },
+  {
+    "name": "fn_send_message",
+    "description": "Send a short message to a recipient.",
+    "parameters": {
+      "recipient": {
+        "type": "string",
+        "description": "Person name mentioned in the request"
+      },
+      "body": {
+        "type": "string",
+        "description": "Message text to deliver"
+      }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_replace_substring",
+    "description": "Replace every occurrence of one substring with another.",
+    "parameters": {
+      "source": {
+        "type": "string",
+        "description": "The input text to search and replace within"
+      },
+      "target": {
+        "type": "string",
+        "description": "The substring to find"
+      },
+      "replacement": {
+        "type": "string",
+        "description": "Replacement text such as a word, asterisk, or label"
+      }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_extract_digits",
+    "description": "Extract digit sequences from text using a regex pattern.",
+    "parameters": {
+      "source_string": {
+        "type": "string",
+        "description": "The input text to search and replace within"
+      },
+      "regex": {
+        "type": "string",
+        "description": "\\d+ for number sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
+      }
+    },
+    "returns": { "type": "string" }
   }
 ]
