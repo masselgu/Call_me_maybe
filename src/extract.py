@@ -17,6 +17,10 @@ BOOL = re.compile(
     r"\b(true|false|yes|no|on|off|enable|enabled|disable|disabled)\b",
     re.I,
 )
+WITH_VALUE = re.compile(
+    r"\bwith\s+'([^']+)'|\bwith\s+\"([^\"]+)\"|\bwith\s+(\S+)",
+    re.I,
+)
 STOP_WORDS = {
     "a",
     "all",
@@ -56,6 +60,14 @@ NUMBER_WORDS = {
 SYMBOL_WORDS = {
     "asterisk": "*",
     "asterisks": "*",
+}
+REGEX_HINTS = {
+    "digit": r"\d+",
+    "digits": r"\d+",
+    "number": r"\d+",
+    "numbers": r"\d+",
+    "vowel": "[aeiouAEIOU]",
+    "vowels": "[aeiouAEIOU]",
 }
 
 
@@ -121,6 +133,32 @@ def _regex_literals(spec: ParameterDefinition) -> list[str]:
     return out
 
 
+def _role(name: str, spec: ParameterDefinition) -> str:
+    """Infer a broad parameter role from schema names/descriptions."""
+    text = f"{name} {spec.description or ''}".lower()
+    if "regex" in text or REGEX_LIT.search(spec.description or ""):
+        return "regex"
+    if "replacement" in text:
+        return "replacement"
+    if "source" in text or "input text" in text or "search" in text:
+        return "source"
+    if "target" in text or "substring" in text or "to find" in text:
+        return "target"
+    return "other"
+
+
+def _with_values(prompt: str) -> list[str]:
+    """Return values introduced by natural-language 'with ...' phrasing."""
+    values: list[str] = []
+    for item in WITH_VALUE.finditer(prompt):
+        value = clean_token(item.group(1) or item.group(2) or item.group(3))
+        if value.lower() in SYMBOL_WORDS:
+            value = SYMBOL_WORDS[value.lower()]
+        if value:
+            values.append(value)
+    return values
+
+
 def _uniq(raw: list[Any], used: set[str]) -> list[Any]:
     """Return non-empty unique values, preserving order."""
     seen: set[str] = set()
@@ -159,14 +197,39 @@ def boolean_options(ev: Evidence) -> list[bool]:
 
 def string_options(
     prompt: str,
+    name: str,
     spec: ParameterDefinition,
     ev: Evidence,
     vocab: set[str],
 ) -> list[str]:
     """Return broad string candidates; the LLM chooses the semantic fit."""
     raw: list[Any] = []
-    raw.extend(_regex_literals(spec))
-    raw.extend(ev.quotes)
+    role = _role(name, spec)
+    literals = _regex_literals(spec)
+
+    if role == "source" and ev.quotes:
+        raw.extend(sorted(ev.quotes, key=len, reverse=True))
+    elif role == "regex":
+        hinted = False
+        for word in ev.words:
+            hint = REGEX_HINTS.get(word.lower())
+            if hint and hint in literals:
+                raw.append(hint)
+                hinted = True
+        if hinted:
+            raw.extend(literals)
+            raw.extend(ev.quotes)
+        else:
+            raw.extend(ev.quotes)
+            raw.extend(literals)
+    elif role == "replacement":
+        raw.extend(_with_values(prompt))
+        raw.extend(ev.quotes)
+        raw.extend(literals)
+    else:
+        raw.extend(ev.quotes)
+        raw.extend(literals)
+
     for word in ev.words:
         cleaned = clean_token(word)
         lower = cleaned.lower()

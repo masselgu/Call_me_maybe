@@ -191,9 +191,16 @@ class FunctionCallingPipeline(BaseModel):
         """Choose every parameter value using constrained decoding."""
         vocab = schema_words(fn)
         params: dict[str, Any] = {}
+        used: set[str] = set()
 
         for name, spec in fn.parameters.items():
-            opts = self._options(prompt, spec, ev, vocab)
+            opts = self._options(prompt, name, spec, ev, vocab)
+            filtered = [
+                value for value in opts
+                if str(value) not in used
+            ]
+            if filtered:
+                opts = filtered
             if not opts:
                 raise ValueError(f"no candidates for {name}")
 
@@ -212,6 +219,7 @@ class FunctionCallingPipeline(BaseModel):
             ])
             pick = self._decoder.choose(ctx, choices)
             params[name] = json.loads(pick)
+            used.add(str(params[name]))
 
         return params
 
@@ -226,13 +234,14 @@ class FunctionCallingPipeline(BaseModel):
         for spec in fn.parameters.values():
             if spec.type == "boolean" and not ev.booleans:
                 return False
-            if not self._options(prompt, spec, ev, vocab):
+            if not self._options(prompt, "", spec, ev, vocab):
                 return False
         return True
 
     def _options(
         self,
         prompt: str,
+        name: str,
         spec: ParameterDefinition,
         ev: Evidence,
         vocab: set[str],
@@ -244,4 +253,4 @@ class FunctionCallingPipeline(BaseModel):
             return list(number_options(ev, integer=False))
         if spec.type == "boolean":
             return list(boolean_options(ev))
-        return list(string_options(prompt, spec, ev, vocab))
+        return list(string_options(prompt, name, spec, ev, vocab))
