@@ -61,7 +61,7 @@
       },
       "regex": {
         "type": "string",
-        "description": "\\d+ for number sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
+        "description": "\\d+ for number digit sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
       },
       "replacement": {
         "type": "string",
@@ -308,7 +308,7 @@
       },
       "regex": {
         "type": "string",
-        "description": "\\d+ for number sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
+        "description": "\\d+ for number digit sequences; [aeiouAEIOU] for vowel sequences; literal word otherwise"
       }
     },
     "returns": { "type": "string" }

@@ -111,11 +111,99 @@ def _desc_patterns(description: str | None, prompt: str) -> list[str]:
     lower = prompt.lower()
     out: list[str] = []
     for chunk in description.split(";"):
-        words = [w.lower() for w in WORD.findall(chunk) if len(w) > 3]
+        chunk = chunk.strip()
         pats = REGEX_LIT.findall(chunk)
-        if pats and any(w in lower for w in words):
+        if not pats:
+            continue
+        label = (
+            chunk.split(" for ", 1)[-1]
+            if re.search(r"\bfor\b", chunk, re.I)
+            else chunk
+        )
+        words = [w.lower() for w in WORD.findall(label) if len(w) > 2]
+        if any(
+            w in lower or w.rstrip("s") in lower or w + "s" in lower
+            for w in words
+        ):
             out.extend(pats)
     return out or REGEX_LIT.findall(description)
+
+
+def _param_role(name: str, spec: ParameterDefinition) -> str:
+    desc = (spec.description or "").lower()
+    if REGEX_LIT.search(spec.description or ""):
+        return "regex"
+    if "replacement" in name or "replacement" in desc:
+        return "replacement"
+    if "input text" in desc or "search" in desc:
+        return "source"
+    return "other"
+
+
+def _uniq(raw: list[Any], used: set[str]) -> list[Any]:
+    seen: set[str] = set()
+    out: list[Any] = []
+    for value in raw:
+        text = str(value)
+        if text and text not in used and text not in seen:
+            seen.add(text)
+            out.append(value)
+    return out
+
+
+def string_options(
+    prompt: str,
+    name: str,
+    spec: ParameterDefinition,
+    ev: Evidence,
+    used: set[str],
+    vocab: set[str],
+    bias: list[str],
+) -> list[Any]:
+    role = _param_role(name, spec)
+    patterns = _desc_patterns(spec.description, prompt)
+
+    if role == "regex" and patterns:
+        return _uniq(patterns, used)
+
+    raw: list[Any] = list(bias)
+    raw.extend(patterns)
+
+    if role == "replacement":
+        for item in WITH.finditer(prompt):
+            token = item.group(1) or item.group(2) or item.group(3)
+            if "*" in (spec.description or "") and "asterisk" in token.lower():
+                token = "*"
+            raw.append(token)
+        tail = re.search(r"\s(\S+)\s*$", prompt)
+        if tail and tail.group(1).lower() not in vocab:
+            raw.append(tail.group(1))
+        return _uniq(raw, used)
+
+    match = WORD_IN_PROMPT.search(prompt)
+    if match:
+        raw.insert(0, match.group(1))
+    match = re.search(r"\breplace\s+'([^']+)'", prompt, re.I)
+    if match:
+        raw.append(match.group(1))
+    if role == "source":
+        raw.extend(q for q in ev.quotes if q not in used)
+    elif role == "other":
+        for item in WITH.finditer(prompt):
+            token = item.group(1) or item.group(2) or item.group(3)
+            raw.append(token)
+        rel = REL.search(prompt)
+        if rel:
+            raw.insert(0, rel.group(2).strip(" .?!'\""))
+        tail = re.search(r"\s(\S+)\s*$", prompt)
+        if tail and tail.group(1).lower() not in vocab:
+            raw.append(tail.group(1))
+        raw.extend(q for q in ev.quotes if q not in used)
+        raw.extend(
+            w for w in ev.tokens
+            if w.lower() not in vocab and w not in used
+        )
+    return _uniq(raw, used)
 
 
 def _fits(fn: FunctionDefinition, ev: Evidence) -> bool:
@@ -170,52 +258,3 @@ def score(fn: FunctionDefinition, ev: Evidence, prompt: str) -> int:
     ):
         sc += 15
     return sc
-
-
-def string_options(
-    prompt: str,
-    spec: ParameterDefinition,
-    ev: Evidence,
-    used: set[str],
-    vocab: set[str],
-    bias: list[str],
-) -> list[Any]:
-    raw: list[Any] = list(bias)
-    raw.extend(_desc_patterns(spec.description, prompt))
-    match = WORD_IN_PROMPT.search(prompt)
-    if match:
-        raw.insert(0, match.group(1))
-    match = re.search(r"\breplace\s+'([^']+)'", prompt, re.I)
-    if match:
-        raw.append(match.group(1))
-    for item in WITH.finditer(prompt):
-        token = item.group(1) or item.group(2) or item.group(3)
-        desc = spec.description or ""
-        if (
-            "*" in desc
-            and any(
-                token.lower().startswith(word.lower())
-                for word in WORD.findall(desc)
-            )
-        ):
-            token = "*"
-        raw.append(token)
-    rel = REL.search(prompt)
-    if rel:
-        raw.insert(0, rel.group(2).strip(" .?!'\""))
-    tail = re.search(r"\s(\S+)\s*$", prompt)
-    if tail and tail.group(1).lower() not in vocab:
-        raw.append(tail.group(1))
-    raw.extend(q for q in ev.quotes if q not in used)
-    raw.extend(
-        w for w in ev.tokens
-        if w.lower() not in vocab and w not in used
-    )
-    seen: set[str] = set()
-    out: list[Any] = []
-    for value in raw:
-        text = str(value)
-        if text and text not in used and text not in seen:
-            seen.add(text)
-            out.append(value)
-    return out

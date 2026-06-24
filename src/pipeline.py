@@ -124,7 +124,7 @@ class FunctionCallingPipeline(BaseModel):
         params: dict[str, Any] = {}
         used: set[str] = set()
         num_i = 0
-        quotes_left = sorted(ev.quotes, key=len, reverse=True)
+        quotes_left = list(ev.quotes)
 
         for name, spec in fn.parameters.items():
             if spec.type in {"number", "integer"}:
@@ -153,9 +153,9 @@ class FunctionCallingPipeline(BaseModel):
                 continue
 
             bias: list[str] = []
-            if quotes_left:
+            if quotes_left and name not in {"regex", "replacement"}:
                 bias = [quotes_left.pop(0)]
-            opts = string_options(prompt, spec, ev, used, vocab, bias)
+            opts = string_options(prompt, name, spec, ev, used, vocab, bias)
             if not opts:
                 raise ValueError(f"no candidates for {name}")
             choices = [json.dumps(v, ensure_ascii=False) for v in opts]
@@ -163,18 +163,14 @@ class FunctionCallingPipeline(BaseModel):
             if spec.description:
                 line += f" — {spec.description}"
             ctx = "\n".join([
-                f"Function: {fn.name}",
+                f"Function: {fn.name} — {fn.description}",
                 line,
                 f"Request: {prompt}",
-                f"Selected: {json.dumps(params)}",
-                f"Choices: {', '.join(choices)}",
+                f"Already chosen: {json.dumps(params)}",
+                f"Pick one value for {name}: {', '.join(choices)}",
                 "Answer:",
             ])
-            pick = (
-                choices[0]
-                if len(choices) == 1
-                else self._decoder.choose(ctx, choices)
-            )
+            pick = self._decoder.choose(ctx, choices)
             params[name] = json.loads(pick)
             used.add(str(params[name]))
 
