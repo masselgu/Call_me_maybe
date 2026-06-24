@@ -16,7 +16,7 @@ class Vocabulary(BaseModel):
     id_to_token: dict[int, str] = Field(default_factory=dict)
 
     @classmethod
-    def from_path(cls, path: str) -> Vocabulary:
+    def from_path(cls, path: str) -> "Vocabulary":
         """Load a Hugging Face ``vocab.json`` file."""
         raw: Any = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
