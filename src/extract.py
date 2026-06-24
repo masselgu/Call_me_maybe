@@ -23,6 +23,16 @@ REGEX_TOPIC = re.compile(
     r"\b(numbers|vowels|vowel|digits|digit|regex|pattern)\b",
     re.I,
 )
+REPLACE_ACTION = re.compile(r"\b(replace|substitute)\b", re.I)
+SOURCE_QUOTE = re.compile(
+    r"\bin\s+'([^']+)'|\bin\s+\"([^\"]+)\"",
+    re.I,
+)
+REPLACE_QUOTE = re.compile(
+    r"\b(?:replace|substitute)\s+(?:the\s+)?(?:word\s+)?'([^']+)'"
+    r"|\b(?:replace|substitute)\s+(?:the\s+)?(?:word\s+)?\"([^\"]+)\"",
+    re.I,
+)
 
 
 @dataclass
@@ -36,6 +46,7 @@ class Evidence:
     has_with: bool
     has_relation: bool
     wants_regex: bool
+    wants_replace: bool
 
 
 def extract(prompt: str) -> Evidence:
@@ -71,6 +82,7 @@ def extract(prompt: str) -> Evidence:
         has_with=bool(WITH.search(prompt)),
         has_relation=bool(REL.search(prompt)),
         wants_regex=bool(REGEX_TOPIC.search(prompt)),
+        wants_replace=bool(REPLACE_ACTION.search(prompt)),
     )
 
 
@@ -130,11 +142,18 @@ def _desc_patterns(description: str | None, prompt: str) -> list[str]:
 
 
 def _param_role(name: str, spec: ParameterDefinition) -> str:
+    lower_name = name.lower()
     desc = (spec.description or "").lower()
     if REGEX_LIT.search(spec.description or ""):
         return "regex"
-    if "replacement" in name or "replacement" in desc:
+    if "replacement" in lower_name or "replacement" in desc:
         return "replacement"
+    if (
+        lower_name in {"target", "substring", "needle"}
+        or "substring to find" in desc
+        or "text to find" in desc
+    ):
+        return "target"
     if "input text" in desc or "search" in desc:
         return "source"
     return "other"
@@ -149,6 +168,50 @@ def _uniq(raw: list[Any], used: set[str]) -> list[Any]:
             seen.add(text)
             out.append(value)
     return out
+
+
+def _clean_token(value: str | None) -> str:
+    """Normalize a short value captured from a prompt."""
+    if value is None:
+        return ""
+    return value.strip(" \t\r\n.,?!'\"")
+
+
+def _source_candidates(prompt: str) -> list[str]:
+    """Return quoted strings that are likely to be the input/source text."""
+    raw: list[str] = []
+    for item in SOURCE_QUOTE.finditer(prompt):
+        raw.append(item.group(1) or item.group(2) or "")
+    raw.extend(
+        m.group(1) if m.group(1) is not None else m.group(2) or ""
+        for m in QUOTE.finditer(prompt)
+    )
+    return [_clean_token(value) for value in raw if _clean_token(value)]
+
+
+def _replace_target(prompt: str) -> str:
+    """Return the text being replaced/substituted when it is explicit."""
+    match = REPLACE_QUOTE.search(prompt)
+    if not match:
+        return ""
+    return _clean_token(match.group(1) or match.group(2))
+
+
+def _replacement_candidates(prompt: str) -> list[str]:
+    """Return values introduced by replacement phrasing such as 'with X'."""
+    raw: list[str] = []
+    for item in WITH.finditer(prompt):
+        token = _clean_token(item.group(1) or item.group(2) or item.group(3))
+        if token.lower() in {"asterisk", "asterisks"}:
+            token = "*"
+        if token:
+            raw.append(token)
+    tail = re.search(r"\s(\S+)\s*$", prompt)
+    if tail:
+        token = _clean_token(tail.group(1))
+        if token:
+            raw.append(token)
+    return raw
 
 
 def string_options(
@@ -170,14 +233,16 @@ def string_options(
     raw.extend(patterns)
 
     if role == "replacement":
-        for item in WITH.finditer(prompt):
-            token = item.group(1) or item.group(2) or item.group(3)
-            if "*" in (spec.description or "") and "asterisk" in token.lower():
-                token = "*"
-            raw.append(token)
-        tail = re.search(r"\s(\S+)\s*$", prompt)
-        if tail and tail.group(1).lower() not in vocab:
-            raw.append(tail.group(1))
+        raw.extend(_replacement_candidates(prompt))
+        return _uniq(raw, set())
+
+    if role == "target":
+        target = _replace_target(prompt)
+        if target:
+            raw.insert(0, target)
+
+    if role == "source":
+        raw = [q for q in _source_candidates(prompt) if q not in used] + raw
         return _uniq(raw, used)
 
     match = WORD_IN_PROMPT.search(prompt)
@@ -186,11 +251,9 @@ def string_options(
     match = re.search(r"\breplace\s+'([^']+)'", prompt, re.I)
     if match:
         raw.append(match.group(1))
-    if role == "source":
-        raw.extend(q for q in ev.quotes if q not in used)
-    elif role == "other":
+    if role == "other":
         for item in WITH.finditer(prompt):
-            token = item.group(1) or item.group(2) or item.group(3)
+            token = _clean_token(item.group(1) or item.group(2) or item.group(3))
             raw.append(token)
         rel = REL.search(prompt)
         if rel:
@@ -208,6 +271,8 @@ def string_options(
 
 def _fits(fn: FunctionDefinition, ev: Evidence) -> bool:
     n, s, b = _counts(fn)
+    if ev.wants_replace and "replacement" not in fn.parameters:
+        return False
     if n and len(ev.numbers) != n:
         return False
     if s and not ev.quotes and not ev.tokens:
@@ -250,6 +315,8 @@ def score(fn: FunctionDefinition, ev: Evidence, prompt: str) -> int:
         sc += 15
     if "recipient" in fn.parameters and ev.has_relation:
         sc += 20
+    if ev.wants_replace and "replacement" in fn.parameters:
+        sc += 30
     if ev.has_relation and any(
         spec.description
         and "person" in spec.description.lower()
