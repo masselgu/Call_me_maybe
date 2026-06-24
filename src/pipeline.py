@@ -5,137 +5,37 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, PrivateAttr
 
-from src.extract import (
-    Evidence,
-    boolean_options,
-    extract,
-    number_options,
-    schema_words,
-    string_options,
-)
+from src.decoder import ChoiceDecoder, Vocabulary
+from src.extract import Evidence, extract, schema_words
 from src.models import (
     FunctionCallResult,
     FunctionDefinition,
     ParameterDefinition,
     PromptItem,
 )
-
+from src.selection import can_fill, options, score_function
 
 MAX_FUNCTION_CHOICES = 6
-
-
-class Vocabulary(BaseModel):
-    """Token ids loaded from the model vocabulary JSON file."""
-
-    ids: set[int] = Field(default_factory=set)
-
-    @classmethod
-    def from_path(cls, path: str) -> "Vocabulary":
-        """Load token ids from a Hugging Face ``vocab.json`` file."""
-        with open(path, "r", encoding="utf-8") as file:
-            raw: Any = json.load(file)
-
-        if not isinstance(raw, dict):
-            raise ValueError("vocabulary JSON must contain an object")
-
-        return cls(ids={int(token_id) for token_id in raw.values()})
-
-    def has_id(self, token_id: int) -> bool:
-        """Check whether a token id exists in the vocabulary."""
-        return token_id in self.ids
-
-
-class ChoiceDecoder(BaseModel):
-    """Generate one valid choice token-by-token with masked logits."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    model: Any
-    vocabulary: Vocabulary
-
-    def choose(self, context: str, choices: list[str]) -> str:
-        """Ask the LLM to choose one item while masking invalid tokens."""
-        if not choices:
-            raise ValueError("empty choice list")
-        if len(choices) == 1:
-            return choices[0]
-        encoded = [
-            (choice, self._encode(f"{choice}\n"))
-            for choice in dict.fromkeys(choices)
-        ]
-        ctx = self._encode(context)
-        out: list[int] = []
-        while True:
-            for choice, ids in encoded:
-                if ids == out:
-                    return choice
-            valid = self._next(encoded, out)
-            out.append(self._pick(ctx + out, valid))
-
-    def _next(
-        self,
-        encoded: list[tuple[str, list[int]]],
-        prefix: list[int],
-    ) -> set[int]:
-        valid: set[int] = set()
-        n = len(prefix)
-        for _, ids in encoded:
-            if ids[:n] == prefix and len(ids) > n:
-                tok = ids[n]
-                if self.vocabulary.has_id(tok):
-                    valid.add(tok)
-        if not valid:
-            raise ValueError("constrained decoding reached a dead end")
-        return valid
-
-    def _pick(self, ctx: list[int], valid: set[int]) -> int:
-        logits = np.array(
-            self.model.get_logits_from_input_ids(ctx),
-            dtype=np.float64,
-        )
-        masked = np.full_like(logits, float("-inf"))
-        for tok in valid:
-            if tok < len(logits):
-                masked[tok] = logits[tok]
-        best = int(np.argmax(masked))
-        if best not in valid:
-            raise ValueError("no valid token was present in model logits")
-        return best
-
-    def _encode(self, text: str) -> list[int]:
-        encoded: Any = self.model.encode(text)
-        raw: Any = encoded.tolist()
-        if isinstance(raw, list) and raw and isinstance(raw[0], list):
-            return [int(item) for item in raw[0]]
-        if isinstance(raw, list):
-            return [int(item) for item in raw]
-        raise ValueError("LLM SDK returned unsupported token ids")
 
 
 class FunctionCallingPipeline(BaseModel):
     """Translate prompts into schema-valid function calls."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     functions: list[FunctionDefinition]
     model_name: str = "Qwen/Qwen3-0.6B"
     _model: Any = PrivateAttr(default=None)
     _decoder: ChoiceDecoder = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
+        """Load the SDK model and constrained decoder."""
         try:
-            from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
+            from llm_sdk import Small_LLM_Model
 
             self._model = Small_LLM_Model(model_name=self.model_name)
-            vocabulary = Vocabulary.from_path(
-                self._model.get_path_to_vocab_file()
-            )
-            self._decoder = ChoiceDecoder(
-                model=self._model,
-                vocabulary=vocabulary,
-            )
+            vocab = Vocabulary.from_path(self._model.get_path_to_vocab_file())
+            self._decoder = ChoiceDecoder(model=self._model, vocabulary=vocab)
         except Exception as exc:
             raise ValueError(
                 "failed to load the LLM model. Run `uv sync` first"
@@ -158,77 +58,29 @@ class FunctionCallingPipeline(BaseModel):
 
     def _pick(self, prompt: str, ev: Evidence) -> FunctionDefinition:
         """Choose the function name using constrained decoding."""
-        functions = [
-            fn for fn in self.functions
-            if self._can_fill(prompt, fn, ev)
-        ]
-        if not functions:
+        choices = [fn for fn in self.functions if can_fill(prompt, fn, ev)]
+        if not choices:
             raise ValueError(f"no function can be filled for prompt: {prompt}")
+        choices = sorted(
+            choices,
+            key=lambda fn: score_function(prompt, ev, fn),
+            reverse=True,
+        )[:MAX_FUNCTION_CHOICES]
 
-        functions = self._shortlist(prompt, ev, functions)
-        lines = [
-            "Choose the function that best matches the request.",
-            "Return only one function name.",
-            "All listed functions can be filled with valid JSON arguments.",
-            "Functions:",
-        ]
-        for fn in functions:
-            sig = ", ".join(
+        lines = ["Choose one function.", "Functions:"]
+        for fn in choices:
+            args = ", ".join(
                 f"{name}:{spec.type}"
                 for name, spec in fn.parameters.items()
             )
-            lines.append(f"- {fn.name}({sig}): {fn.description}")
+            lines.append(f"- {fn.name}({args}): {fn.description}")
         lines += [f"Request: {prompt}", "Function:"]
 
         name = self._decoder.choose(
             "\n".join(lines),
-            [fn.name for fn in functions],
+            [fn.name for fn in choices],
         )
-        return next(fn for fn in functions if fn.name == name)
-
-    def _shortlist(
-        self,
-        prompt: str,
-        ev: Evidence,
-        functions: list[FunctionDefinition],
-    ) -> list[FunctionDefinition]:
-        """Keep a small generic retrieval set before the LLM chooses."""
-        ranked = sorted(
-            functions,
-            key=lambda fn: self._retrieval_score(prompt, ev, fn),
-            reverse=True,
-        )
-        return ranked[:MAX_FUNCTION_CHOICES]
-
-    def _retrieval_score(
-        self,
-        prompt: str,
-        ev: Evidence,
-        fn: FunctionDefinition,
-    ) -> int:
-        """Score schema/prompt compatibility without choosing the function."""
-        prompt_words = {word.lower() for word in ev.words}
-        score = len(prompt_words & schema_words(fn)) * 10
-        number_count, string_count, bool_count = self._type_counts(fn)
-
-        if number_count:
-            score += 20 if len(ev.numbers) == number_count else -20
-        elif ev.numbers:
-            score -= 10
-
-        if string_count:
-            score += 8 if ev.quotes else 0
-        elif ev.quotes:
-            score -= 5
-
-        if bool_count:
-            score += 20 if ev.booleans else -20
-        elif ev.booleans:
-            score -= 5
-
-        if "?" in prompt and fn.returns.type == "boolean":
-            score += 5
-        return score
+        return next(fn for fn in choices if fn.name == name)
 
     def _fill(
         self,
@@ -237,83 +89,49 @@ class FunctionCallingPipeline(BaseModel):
         ev: Evidence,
     ) -> dict[str, Any]:
         """Choose every parameter value using constrained decoding."""
-        vocab = schema_words(fn)
         params: dict[str, Any] = {}
         used: set[str] = set()
+        vocab = schema_words(fn)
 
         for name, spec in fn.parameters.items():
-            opts = self._options(prompt, name, spec, ev, vocab)
-            filtered = [
-                value for value in opts
-                if str(value) not in used
-            ]
-            if filtered:
-                opts = filtered
-            if not opts:
+            values = options(prompt, name, spec, ev, vocab)
+            unused = [value for value in values if str(value) not in used]
+            values = unused or values
+            if not values:
                 raise ValueError(f"no candidates for {name}")
 
-            choices = [json.dumps(value, ensure_ascii=False) for value in opts]
-            line = f"Parameter: {name} ({spec.type})"
-            if spec.description:
-                line += f" - {spec.description}"
-            ctx = "\n".join([
-                f"Function: {fn.name} - {fn.description}",
-                line,
-                f"Request: {prompt}",
-                f"Already chosen: {json.dumps(params)}",
-                "Choose by meaning, not by candidate order.",
-                f"Valid values for {name}: {', '.join(choices)}",
-                "Answer:",
-            ])
-            pick = self._decoder.choose(ctx, choices)
+            choices = [
+                json.dumps(value, ensure_ascii=False)
+                for value in values
+            ]
+            ctx = self._parameter_prompt(
+                prompt, fn, name, spec, params, choices
+            )
+            pick = self._decoder.choose(
+                ctx, choices,
+            )
             params[name] = json.loads(pick)
             used.add(str(params[name]))
-
         return params
 
-    def _can_fill(
+    def _parameter_prompt(
         self,
         prompt: str,
         fn: FunctionDefinition,
-        ev: Evidence,
-    ) -> bool:
-        """Check that each parameter has at least one typed candidate."""
-        vocab = schema_words(fn)
-        number_count, _, bool_count = self._type_counts(fn)
-        if number_count and len(number_options(ev, integer=False)) < number_count:
-            return False
-        if bool_count and not ev.booleans:
-            return False
-        for spec in fn.parameters.values():
-            if not self._options(prompt, "", spec, ev, vocab):
-                return False
-        return True
-
-    def _type_counts(self, fn: FunctionDefinition) -> tuple[int, int, int]:
-        """Count numeric, string, and boolean parameters in a schema."""
-        numbers = strings = booleans = 0
-        for spec in fn.parameters.values():
-            if spec.type in {"number", "integer"}:
-                numbers += 1
-            elif spec.type == "string":
-                strings += 1
-            elif spec.type == "boolean":
-                booleans += 1
-        return numbers, strings, booleans
-
-    def _options(
-        self,
-        prompt: str,
         name: str,
         spec: ParameterDefinition,
-        ev: Evidence,
-        vocab: set[str],
-    ) -> list[Any]:
-        """Build schema-compatible values; semantics are chosen by the LLM."""
-        if spec.type == "integer":
-            return list(number_options(ev, integer=True))
-        if spec.type == "number":
-            return list(number_options(ev, integer=False))
-        if spec.type == "boolean":
-            return list(boolean_options(ev))
-        return list(string_options(prompt, name, spec, ev, vocab))
+        params: dict[str, Any],
+        choices: list[str],
+    ) -> str:
+        """Build the prompt for choosing one parameter value."""
+        line = f"Parameter: {name} ({spec.type})"
+        if spec.description:
+            line += f" - {spec.description}"
+        return "\n".join([
+            f"Function: {fn.name} - {fn.description}",
+            line,
+            f"Request: {prompt}",
+            f"Already chosen: {json.dumps(params)}",
+            f"Valid values: {', '.join(choices)}",
+            "Answer:",
+        ])
