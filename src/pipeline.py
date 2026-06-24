@@ -24,6 +24,9 @@ from src.models import (
 )
 
 
+MAX_FUNCTION_CHOICES = 6
+
+
 class Vocabulary(BaseModel):
     """Token ids loaded from the model vocabulary JSON file."""
 
@@ -162,6 +165,7 @@ class FunctionCallingPipeline(BaseModel):
         if not functions:
             raise ValueError(f"no function can be filled for prompt: {prompt}")
 
+        functions = self._shortlist(prompt, ev, functions)
         lines = [
             "Choose the function that best matches the request.",
             "Return only one function name.",
@@ -181,6 +185,50 @@ class FunctionCallingPipeline(BaseModel):
             [fn.name for fn in functions],
         )
         return next(fn for fn in functions if fn.name == name)
+
+    def _shortlist(
+        self,
+        prompt: str,
+        ev: Evidence,
+        functions: list[FunctionDefinition],
+    ) -> list[FunctionDefinition]:
+        """Keep a small generic retrieval set before the LLM chooses."""
+        ranked = sorted(
+            functions,
+            key=lambda fn: self._retrieval_score(prompt, ev, fn),
+            reverse=True,
+        )
+        return ranked[:MAX_FUNCTION_CHOICES]
+
+    def _retrieval_score(
+        self,
+        prompt: str,
+        ev: Evidence,
+        fn: FunctionDefinition,
+    ) -> int:
+        """Score schema/prompt compatibility without choosing the function."""
+        prompt_words = {word.lower() for word in ev.words}
+        score = len(prompt_words & schema_words(fn)) * 10
+        number_count, string_count, bool_count = self._type_counts(fn)
+
+        if number_count:
+            score += 20 if len(ev.numbers) == number_count else -20
+        elif ev.numbers:
+            score -= 10
+
+        if string_count:
+            score += 8 if ev.quotes else 0
+        elif ev.quotes:
+            score -= 5
+
+        if bool_count:
+            score += 20 if ev.booleans else -20
+        elif ev.booleans:
+            score -= 5
+
+        if "?" in prompt and fn.returns.type == "boolean":
+            score += 5
+        return score
 
     def _fill(
         self,
@@ -231,12 +279,27 @@ class FunctionCallingPipeline(BaseModel):
     ) -> bool:
         """Check that each parameter has at least one typed candidate."""
         vocab = schema_words(fn)
+        number_count, _, bool_count = self._type_counts(fn)
+        if number_count and len(number_options(ev, integer=False)) < number_count:
+            return False
+        if bool_count and not ev.booleans:
+            return False
         for spec in fn.parameters.values():
-            if spec.type == "boolean" and not ev.booleans:
-                return False
             if not self._options(prompt, "", spec, ev, vocab):
                 return False
         return True
+
+    def _type_counts(self, fn: FunctionDefinition) -> tuple[int, int, int]:
+        """Count numeric, string, and boolean parameters in a schema."""
+        numbers = strings = booleans = 0
+        for spec in fn.parameters.values():
+            if spec.type in {"number", "integer"}:
+                numbers += 1
+            elif spec.type == "string":
+                strings += 1
+            elif spec.type == "boolean":
+                booleans += 1
+        return numbers, strings, booleans
 
     def _options(
         self,
