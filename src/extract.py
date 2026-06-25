@@ -60,9 +60,11 @@ def schema_words(fn: FunctionDefinition) -> set[str]:
     parts = [fn.name, fn.description]
     for name, spec in fn.parameters.items():
         parts.extend([name, spec.description or ""])
-    return {
-        piece.lower()
-        for part in parts
-        for piece in re.split(r"[_\W]+", part)
-        if piece
-    }
+
+    result: set[str] = set()
+    for part in parts:
+        pieces = re.split(r"[_\W]+", part)
+        for piece in pieces:
+            if piece:
+                result.add(piece.lower())
+    return result
