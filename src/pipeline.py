@@ -1,7 +1,5 @@
 """Simple function calling pipeline."""
 
-from __future__ import annotations
-
 import json
 from typing import Any
 from pydantic import BaseModel, PrivateAttr
