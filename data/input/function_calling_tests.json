@@ -6,10 +6,25 @@
     "prompt": "What is the sum of 265 and 345?"
   },
   {
+    "prompt": "Add 10 and 20"
+  },
+  {
+    "prompt": "Add 7.5 and 2.3"
+  },
+  {
+    "prompt": "What is the sum of 1000 and 9999?"
+  },
+  {
     "prompt": "Greet shrek"
   },
   {
     "prompt": "Greet john"
+  },
+  {
+    "prompt": "Greet Alice"
+  },
+  {
+    "prompt": "Greet Bob"
   },
   {
     "prompt": "Reverse the string 'hello'"
@@ -18,18 +33,48 @@
     "prompt": "Reverse the string 'world'"
   },
   {
+    "prompt": "Reverse the string 'OpenAI'"
+  },
+  {
+    "prompt": "Reverse the string 'hello world'"
+  },
+  {
     "prompt": "What is the square root of 16?"
   },
   {
     "prompt": "Calculate the square root of 144"
   },
   {
+    "prompt": "What is the square root of 81?"
+  },
+  {
+    "prompt": "Calculate the square root of 625"
+  },
+  {
     "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"
+  },
+  {
+    "prompt": "Replace all numbers in \"abc123def456\" with X"
+  },
+  {
+    "prompt": "Replace all numbers in \"Age: 25\" with NUMBER"
   },
   {
     "prompt": "Replace all vowels in 'Programming is fun' with asterisks"
   },
   {
+    "prompt": "Replace all vowels in 'Hello World' with *"
+  },
+  {
+    "prompt": "Replace all vowels in 'OpenAI' with STAR"
+  },
+  {
     "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'"
+  },
+  {
+    "prompt": "Substitute the word 'red' with 'blue' in 'red car red bike'"
+  },
+  {
+    "prompt": "Substitute the word 'apple' with 'orange' in 'apple apple pie'"
   }
 ]

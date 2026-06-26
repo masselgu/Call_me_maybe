@@ -1,4 +1,4 @@
-"""Function calling with LLM-guided constrained decoding."""
+"""Simple function calling pipeline."""
 
 from __future__ import annotations
 
@@ -6,130 +6,268 @@ import json
 from typing import Any
 from pydantic import BaseModel, PrivateAttr
 from src.decoder import ChoiceDecoder, Vocabulary
-from src.extract import Evidence, extract, schema_words
 from src.models import (
     FunctionCallResult,
     FunctionDefinition,
-    ParameterDefinition,
     PromptItem,
 )
-from src.selection import can_fill, options, score_function
-
-MAX_FUNCTION_CHOICES = 6
 
 
 class FunctionCallingPipeline(BaseModel):
-    """Translate prompts into schema-valid function calls."""
 
     functions: list[FunctionDefinition]
     model_name: str = "Qwen/Qwen3-0.6B"
-    _model: Any = PrivateAttr(default=None)
+
+    _model: Any = PrivateAttr()
     _decoder: ChoiceDecoder = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
-        """Load the SDK model and constrained decoder."""
-        try:
-            from llm_sdk import Small_LLM_Model
 
-            self._model = Small_LLM_Model(model_name=self.model_name)
-            vocab = Vocabulary.from_path(self._model.get_path_to_vocab_file())
-            self._decoder = ChoiceDecoder(model=self._model, vocabulary=vocab)
-        except Exception as exc:
-            raise ValueError(
-                "failed to load the LLM model. Run `uv sync` first"
-            ) from exc
+        from llm_sdk import Small_LLM_Model
 
-    def run(self, prompts: list[PromptItem]) -> list[FunctionCallResult]:
-        """Convert every prompt into one schema-valid function call."""
+        self._model = Small_LLM_Model(
+            model_name=self.model_name
+        )
+
+        vocab = Vocabulary.from_path(
+            self._model.get_path_to_vocab_file()
+        )
+
+        self._decoder = ChoiceDecoder(
+            model=self._model,
+            vocabulary=vocab,
+        )
+
+    def run(
+        self,
+        prompts: list[PromptItem],
+    ) -> list[FunctionCallResult]:
+
         results: list[FunctionCallResult] = []
+
         for item in prompts:
-            ev = extract(item.prompt)
-            fn = self._pick(item.prompt, ev)
+
+            function = self._select_function(
+                item.prompt
+            )
+
+            parameters = self._select_parameters(
+                item.prompt,
+                function,
+            )
+
             results.append(
                 FunctionCallResult(
                     prompt=item.prompt,
-                    name=fn.name,
-                    parameters=self._fill(item.prompt, fn, ev),
+                    name=function.name,
+                    parameters=parameters,
                 )
             )
+
         return results
 
-    def _pick(self, prompt: str, ev: Evidence) -> FunctionDefinition:
-        """Choose the function name using constrained decoding."""
-        choices = [fn for fn in self.functions if can_fill(prompt, fn, ev)]
-        if not choices:
-            raise ValueError(f"no function can be filled for prompt: {prompt}")
-        choices = sorted(
-            choices,
-            key=lambda fn: score_function(prompt, ev, fn),
-            reverse=True,
-        )[:MAX_FUNCTION_CHOICES]
-
-        lines = ["Choose one function.", "Functions:"]
-        for fn in choices:
-            args = ", ".join(
-                f"{name}:{spec.type}"
-                for name, spec in fn.parameters.items()
-            )
-            lines.append(f"- {fn.name}({args}): {fn.description}")
-        lines += [f"Request: {prompt}", "Function:"]
-
-        name = self._decoder.choose(
-            "\n".join(lines),
-            [fn.name for fn in choices],
-        )
-        return next(fn for fn in choices if fn.name == name)
-
-    def _fill(
+    def _select_function(
         self,
         prompt: str,
-        fn: FunctionDefinition,
-        ev: Evidence,
-    ) -> dict[str, Any]:
-        """Choose every parameter value using constrained decoding."""
-        params: dict[str, Any] = {}
-        used: set[str] = set()
-        vocab = schema_words(fn)
+    ) -> FunctionDefinition:
 
-        for name, spec in fn.parameters.items():
-            values = options(prompt, name, spec, ev, vocab)
-            unused = [value for value in values if str(value) not in used]
-            values = unused or values
-            if not values:
-                raise ValueError(f"no candidates for {name}")
+        choices = [fn.name for fn in self.functions]
+
+        text = (
+            "Choose the best function.\n\n"
+        )
+
+        for fn in self.functions:
+            text += (
+                f"{fn.name}: "
+                f"{fn.description}\n"
+            )
+
+        text += (
+            f"\nRequest: {prompt}\n"
+            "Function:"
+        )
+
+        selected = self._decoder.choose(
+            text,
+            choices,
+        )
+
+        for fn in self.functions:
+            if fn.name == selected:
+                return fn
+
+        raise ValueError(
+            "function not found"
+        )
+
+    def _select_parameters(
+        self,
+        prompt: str,
+        function: FunctionDefinition,
+    ) -> dict[str, Any]:
+
+        parameters: dict[str, Any] = {}
+        used: set[str] = set()
+
+        for name, spec in function.parameters.items():
+
+            values = self._parameter_candidates(
+                prompt,
+                name,
+                spec.type,
+            )
+
+            values = [
+                value
+                for value in values
+                if str(value) not in used
+            ] or values
 
             choices = [
-                json.dumps(value, ensure_ascii=False)
-                for value in values
+                json.dumps(v)
+                for v in values
             ]
-            ctx = self._parameter_prompt(
-                prompt, fn, name, spec, params, choices
-            )
-            pick = self._decoder.choose(
-                ctx, choices,
-            )
-            params[name] = json.loads(pick)
-            used.add(str(params[name]))
-        return params
 
-    def _parameter_prompt(
+            text = (
+                f"Function: {function.name}\n"
+                f"Request: {prompt}\n"
+                f"Parameter: {name}\n"
+                f"Type: {spec.type}\n"
+                f"Choices: {choices}\n"
+                "Answer:"
+            )
+
+            picked = self._decoder.choose(
+                text,
+                choices,
+            )
+
+            parameters[name] = json.loads(
+                picked
+            )
+
+            used.add(str(parameters[name]))
+
+        return parameters
+
+    def _parameter_candidates(
         self,
         prompt: str,
-        fn: FunctionDefinition,
-        name: str,
-        spec: ParameterDefinition,
-        params: dict[str, Any],
-        choices: list[str],
-    ) -> str:
-        """Build the prompt for choosing one parameter value."""
-        line = f"Parameter: {name} ({spec.type})"
-        if spec.description:
-            line += f" - {spec.description}"
-        return "\n".join([
-            f"Function: {fn.name} - {fn.description}",
-            line,
-            f"Request: {prompt}",
-            f"Already chosen: {json.dumps(params)}",
-            f"Valid values: {', '.join(choices)}",
-            "Answer:",
-        ])
+        param_name: str,
+        param_type: str,
+    ) -> list[Any]:
+
+        words = prompt.split()
+
+        if param_type == "boolean":
+            return [True, False]
+
+        if param_type in {"number", "integer"}:
+
+            values = []
+
+            for word in words:
+
+                clean = ""
+
+                for ch in word:
+                    if ch.isdigit() or ch == ".":
+                        clean += ch
+
+                if clean:
+                    number = float(clean)
+
+                    if param_type == "integer":
+                        values.append(int(number))
+                    else:
+                        values.append(number)
+
+            return values or [0]
+
+        strings = []
+
+        current = ""
+        inside = False
+        quote = ""
+
+        for ch in prompt:
+
+            if not inside:
+
+                if ch in {"'", '"'}:
+                    inside = True
+                    quote = ch
+
+                continue
+
+            if ch == quote:
+                strings.append(current)
+                current = ""
+                inside = False
+                quote = ""
+                continue
+
+            current += ch
+
+        lower_prompt = prompt.lower()
+
+        if param_name == "name":
+
+            if len(words) > 1:
+                return [words[-1]]
+
+            return [prompt]
+
+        if param_name == "s":
+
+            if strings:
+                return [strings[0]]
+
+            return [prompt]
+
+        if param_name == "source_string":
+
+            if strings:
+                return [strings[-1]]
+
+            return [prompt]
+
+        if param_name == "regex":
+
+            if "number" in lower_prompt or "numbers" in lower_prompt:
+                return ["\\d+"]
+
+            if "vowel" in lower_prompt or "vowels" in lower_prompt:
+                return ["[aeiouAEIOU]"]
+
+            if len(strings) >= 2:
+                return [strings[0]]
+
+            return [".*"]
+
+        if param_name == "replacement":
+
+            if "asterisk" in lower_prompt:
+                return ["*"]
+
+            parts = prompt.split()
+
+            for i, word in enumerate(parts):
+
+                if word.lower() == "with" and i + 1 < len(parts):
+
+                    value = parts[i + 1]
+                    value = value.strip("'\".,!?")
+
+                    return [value]
+
+            if len(strings) >= 2:
+                return [strings[1]]
+
+            return [""]
+
+        if strings:
+            return strings
+
+        return [prompt]

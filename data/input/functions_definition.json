@@ -67,5 +67,65 @@
     "returns": {
       "type": "string"
     }
+  },
+  {
+    "name": "fn_multiply_numbers",
+    "description": "Multiply two numbers together.",
+    "parameters": {
+      "x": {
+        "type": "number"
+      },
+      "y": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_power",
+    "description": "Raise a number to a power.",
+    "parameters": {
+      "base": {
+        "type": "number"
+      },
+      "exponent": {
+        "type": "number"
+      }
+    },
+    "returns": {
+      "type": "number"
+    }
+  },
+  {
+    "name": "fn_repeat_string",
+    "description": "Repeat a string multiple times.",
+    "parameters": {
+      "text": {
+        "type": "string"
+      },
+      "count": {
+        "type": "integer"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
+    "name": "fn_contains_text",
+    "description": "Check whether a string contains another string.",
+    "parameters": {
+      "source": {
+        "type": "string"
+      },
+      "target": {
+        "type": "string"
+      }
+    },
+    "returns": {
+      "type": "boolean"
+    }
   }
 ]
