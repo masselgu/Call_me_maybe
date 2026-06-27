@@ -26,12 +26,7 @@ class ChoiceDecoder(BaseModel):
     model: Any
     vocabulary: Vocabulary
 
-    def choose(
-        self,
-        context: str,
-        choices: list[str],
-    ) -> str:
-
+    def choose(self, context: str, choices: list[str]) -> str:
         if len(choices) == 1:
             return choices[0]
 
@@ -44,7 +39,6 @@ class ChoiceDecoder(BaseModel):
         generated: list[int] = []
 
         while True:
-
             for choice, ids in encoded_choices:
                 if generated == ids:
                     return choice
@@ -71,21 +65,19 @@ class ChoiceDecoder(BaseModel):
             )
 
             for token_id in valid:
-                if token_id < len(logits):
+                if (
+                    self.vocabulary.has_id(token_id)
+                    and token_id < len(logits)
+                ):
                     masked[token_id] = logits[token_id]
 
             generated.append(int(np.argmax(masked)))
 
     def _encode(self, text: str) -> list[int]:
-
         encoded = self.model.encode(text)
         raw = encoded.tolist()
-
         if isinstance(raw, list):
-
             if raw and isinstance(raw[0], list):
                 return [int(x) for x in raw[0]]
-
-            return [int(x) for x in raw]
 
         raise ValueError("invalid tokenization")
