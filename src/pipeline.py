@@ -217,32 +217,17 @@ class FunctionCallingPipeline(BaseModel):
         )
 
         llm_prompt = (
-            "You are a function-calling assistant.\n\n"
+            "Extract parameter values from a request. Copy text exactly as "
+            "it appears -- do not compute, solve, or transform anything. "
+            "Return ONLY JSON.\n\n"
 
-            "IMPORTANT RULES:\n"
-            "- Do NOT execute the function.\n"
-            "- Do NOT compute the result.\n"
-            "- Do NOT modify the input.\n"
-            "- Do NOT apply the transformation.\n"
-            "- ONLY extract parameter values from the request.\n"
-            "- Return ONLY valid JSON.\n\n"
+            "Function: fn_calculate_discount(price: number, percent: number)\n"
+            "Request: Apply a discount of 15 percent to a price of 80\n"
+            'JSON: {"price":[80],"percent":[15]}\n\n'
 
-            "Example:\n"
-            "Function: fn_substitute_string_with_regex("
-            "source_string: string, regex: string, replacement: string)\n"
-            "Request: Replace all vowels in 'Programming is fun' with asterisks\n"
-            'JSON: {"source_string":["Programming is fun"],'
-            '"regex":["[aeiouAEIOU]"],'
-            '"replacement":["*"]}\n\n'
-
-            "Example:\n"
-            "Function: fn_substitute_string_with_regex("
-            "source_string: string, regex: string, replacement: string)\n"
-            "Request: Replace all numbers in "
-            "\"Hello 34 I'm 233 years old\" with NUMBERS\n"
-            'JSON: {"source_string":["Hello 34 I\'m 233 years old"],'
-            '"regex":["\\\\d+"],'
-            '"replacement":["NUMBERS"]}\n\n'
+            "Function: fn_lookup_record(record_id: string, table: string)\n"
+            "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
+            'JSON: {"record_id":["Alpha-12"],"table":["inventory"]}\n\n'
 
             f"Function: {function.name}({param_spec})\n"
             f"Request: {prompt}\n"
