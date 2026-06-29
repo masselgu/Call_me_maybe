@@ -72,16 +72,33 @@ class FunctionCallingPipeline(BaseModel):
     ) -> FunctionDefinition:
 
         choices = [fn.name for fn in self.functions]
-        text = "Choose the best function.\n\n"
 
+        function_list_text = "Choose the best function for the request.\n\n"
         for fn in self.functions:
-            text += f"{fn.name}: {fn.description}\n"
+            params = ", ".join(fn.parameters.keys())
+            function_list_text += f"{fn.name}({params}): {fn.description}\n"
 
-        text += f"\nRequest: {prompt}\nFunction:"
-        selected = self._decoder.choose(
-            text,
-            choices,
+        # Let the model reason in its own words first (unconstrained,
+        # advisory only -- never trusted directly). Stops as soon as
+        # it finishes one sentence (newline or period) instead of
+        # always running to the full token budget.
+        reasoning_prompt = (
+            function_list_text
+            + f"\nRequest: {prompt}\n"
+            "Think briefly about how many values are involved and which "
+            "function matches.\nReasoning:"
         )
+        reasoning_text = self._free_generate(
+            reasoning_prompt,
+            max_tokens=20,
+            stop_chars=("\n", "."),
+        )
+
+        # The constrained pick still makes the actual guarantee: whatever
+        # the model reasoned, the final answer is forced to be one of the
+        # real function names.
+        context_text = reasoning_prompt + reasoning_text + "\nFunction:"
+        selected = self._decoder.choose(context_text, choices)
 
         for fn in self.functions:
             if fn.name == selected:
@@ -176,34 +193,40 @@ class FunctionCallingPipeline(BaseModel):
         self,
         prompt: str,
         max_tokens: int = 15,
+        stop_chars: tuple[str, ...] = ("}",),
     ) -> str:
+        """Greedy decode, stopping as soon as any char in stop_chars
+        appears in the newly generated piece.
+
+        Decodes only the new token each step instead of re-decoding
+        the whole growing sequence every iteration -- O(1) per step
+        instead of O(n). stop_chars is configurable so different
+        callers can stop on what THEY consider "done" (a closing
+        brace for JSON extraction, a newline/period for free-form
+        reasoning) instead of every call sharing one hardcoded
+        condition that only fits one of the two use cases.
+        """
 
         ids = self._decoder._encode(prompt)
 
         generated: list[int] = []
+        pieces: list[str] = []
         start = time.time()
-        for i in range(max_tokens):
+        for _ in range(max_tokens):
 
             logits = self._model.get_logits_from_input_ids(
                 ids + generated
             )
-            elapsed = time.time() - start
-
-            print(
-                f"token={i} "
-                f"context_len={len(ids + generated)} "
-                f"time={elapsed:.4f}s"
-            )
             next_id = int(np.argmax(logits))
             generated.append(next_id)
 
-            text = self._model.decode(generated)
-
-            if "}" in text:
-                print("FOUND CLOSING BRACE")
+            piece = self._model.decode([next_id])
+            pieces.append(piece)
+            print(f"Generated piece: {piece} (time elapsed: {time.time() - start:.2f}s)")
+            if any(ch in piece for ch in stop_chars):
                 break
 
-        return self._model.decode(generated)
+        return "".join(pieces)
 
     def _llm_propose_values(
         self,
@@ -237,6 +260,7 @@ class FunctionCallingPipeline(BaseModel):
         raw = self._free_generate(
             llm_prompt,
             max_tokens=30,
+            stop_chars=("}",),
         )
 
         try:
