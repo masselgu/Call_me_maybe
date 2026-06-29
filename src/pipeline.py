@@ -24,11 +24,11 @@ class FunctionCallingPipeline(BaseModel):
     def model_post_init(self, __context: Any) -> None:
 
         from llm_sdk import Small_LLM_Model
-
+        print(f"Loading model {self.model_name}...")
         self._model = Small_LLM_Model(
             model_name=self.model_name
         )
-
+        print(f"Model {self.model_name} loaded successfully.\n")
         vocab = Vocabulary.from_path(
             self._model.get_path_to_vocab_file()
         )
@@ -44,9 +44,10 @@ class FunctionCallingPipeline(BaseModel):
     ) -> list[FunctionCallResult]:
 
         results: list[FunctionCallResult] = []
+        print(f"Processing {len(prompts)} prompts...\n")
         start_time = time.time()
-        for item in prompts:
-
+        for i, item in enumerate(prompts, 1):
+            print(f"Processing prompt {i}/{len(prompts)}: {item.prompt}")
             function = self._select_function(
                 item.prompt
             )
@@ -63,7 +64,11 @@ class FunctionCallingPipeline(BaseModel):
                     parameters=parameters,
                 )
             )
-        print(f"Total time elapsed: {time.time() - start_time:.2f}s")
+            print(f"successfully processed prompt: {i}/{len(prompts)} "
+                  f"{item.prompt}\n")
+
+        print(f"\nTotal time elapsed: {(time.time() - start_time) / 60:.2f} "
+              "minutes")
         return results
 
     def _select_function(
@@ -77,7 +82,8 @@ class FunctionCallingPipeline(BaseModel):
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
             "Count the number of values in the request carefully.\n"
-            "Only answer with the exact function name. Do not explain anything.\n\n"
+            "Only answer with the exact function name. Do not explain "
+            "anything.\n\n"
             "Available functions:\n"
         )
         for fn in self.functions:
@@ -207,7 +213,6 @@ class FunctionCallingPipeline(BaseModel):
 
         generated: list[int] = []
         pieces: list[str] = []
-        start = time.time()
         for _ in range(max_tokens):
 
             logits = self._model.get_logits_from_input_ids(
@@ -218,7 +223,7 @@ class FunctionCallingPipeline(BaseModel):
 
             piece = self._model.decode([next_id])
             pieces.append(piece)
-            print(f"Generated piece: {piece} (time elapsed: {time.time() - start:.2f}s)")
+
             if any(ch in piece for ch in stop_chars):
                 break
 
@@ -237,8 +242,10 @@ class FunctionCallingPipeline(BaseModel):
 
         llm_prompt = (
             "Extract parameter values from a request. "
-            "Copy text exactly as it appears -- do not compute, solve, or transform anything. "
-            "The parameter name may differ from the wording in the request -- extract by meaning, not by name.\n\n"
+            "Copy text exactly as it appears -- do not compute, solve, "
+            "or transform anything. "
+            "The parameter name may differ from the wording in the request -- "
+            "extract by meaning, not by name.\n\n"
 
             # teaches: numbers, multiple params
             "Function: fn_calculate_discount(price: number, percent: number)\n"
@@ -250,7 +257,8 @@ class FunctionCallingPipeline(BaseModel):
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
             'JSON: {"record_id":["Alpha-12"],"table":["inventory"]}\n\n'
 
-            f"Function: {function.name}({param_spec}) Description: {function.description}\n"
+            f"Function: {function.name}({param_spec}) "
+            f"Description: {function.description}\n"
             f"Request: {prompt}\n"
             "JSON:"
         )
