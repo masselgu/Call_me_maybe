@@ -1,21 +1,35 @@
 [
-  { "prompt": "What is the sum of 2 and 3?" },
-  { "prompt": "What is the sum of 2 and 3 and 8?" },
-  { "prompt": "Greet shrek" },
-  { "prompt": "Greet John Smith" },
-  { "prompt": "Greet O'Brien" },
-  { "prompt": "Reverse the string 'hello'" },
-  { "prompt": "Reverse the string ''" },
-  { "prompt": "Reverse the string 'a@b#c$d%'" },
-  { "prompt": "What is the square root of 16?" },
-  { "prompt": "What is the square root of 1000000?" },
-  { "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS" },
-  { "prompt": "Replace all vowels in 'Programming is fun' with asterisks" },
-  { "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'" },
-  { "prompt": "Is 42 an even number?" },
-  { "prompt": "Is 7 an even number?" },
-  { "prompt": "Set the active flag to true" },
-  { "prompt": "Turn off the active flag" },
-  { "prompt": "What is the sum of -15 and 1000000000?" },
-  { "prompt": "Add some numbers together" }
+  {
+    "prompt": "What is the sum of 2 and 3?"
+  },
+  {
+    "prompt": "What is the sum of 265 and 345?"
+  },
+  {
+    "prompt": "Greet shrek"
+  },
+  {
+    "prompt": "Greet john"
+  },
+  {
+    "prompt": "Reverse the string 'hello'"
+  },
+  {
+    "prompt": "Reverse the string 'world'"
+  },
+  {
+    "prompt": "What is the square root of 16?"
+  },
+  {
+    "prompt": "Calculate the square root of 144"
+  },
+  {
+    "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"
+  },
+  {
+    "prompt": "Replace all vowels in 'Programming is fun' with asterisks"
+  },
+  {
+    "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'"
+  }
 ]

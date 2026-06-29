@@ -44,7 +44,7 @@ class FunctionCallingPipeline(BaseModel):
     ) -> list[FunctionCallResult]:
 
         results: list[FunctionCallResult] = []
-
+        start_time = time.time()
         for item in prompts:
 
             function = self._select_function(
@@ -63,7 +63,7 @@ class FunctionCallingPipeline(BaseModel):
                     parameters=parameters,
                 )
             )
-
+        print(f"Total time elapsed: {time.time() - start_time:.2f}s")
         return results
 
     def _select_function(
@@ -73,31 +73,27 @@ class FunctionCallingPipeline(BaseModel):
 
         choices = [fn.name for fn in self.functions]
 
-        function_list_text = "Choose the best function for the request.\n\n"
+        function_list_text = (
+            "You are an AI function calling assistant.\n\n"
+            "Your task is to choose the BEST function for the user request.\n"
+            "Count the number of values in the request carefully.\n"
+            "Only answer with the exact function name. Do not explain anything.\n\n"
+            "Available functions:\n"
+        )
         for fn in self.functions:
-            params = ", ".join(fn.parameters.keys())
-            function_list_text += f"{fn.name}({params}): {fn.description}\n"
+            params = ", ".join(
+                f"{k}: {v.type}" for k, v in fn.parameters.items()
+            )
+            param_count = len(fn.parameters)
+            function_list_text += (
+                f"- {fn.name}({params})"
+                f" [{param_count} parameter(s)]: {fn.description}\n"
+            )
 
-        # Let the model reason in its own words first (unconstrained,
-        # advisory only -- never trusted directly). Stops as soon as
-        # it finishes one sentence (newline or period) instead of
-        # always running to the full token budget.
-        reasoning_prompt = (
+        context_text = (
             function_list_text
-            + f"\nRequest: {prompt}\n"
-            "Think briefly about how many values are involved and which "
-            "function matches.\nReasoning:"
+            + f"\nUser request: {prompt}\nFunction:"
         )
-        reasoning_text = self._free_generate(
-            reasoning_prompt,
-            max_tokens=20,
-            stop_chars=("\n", "."),
-        )
-
-        # The constrained pick still makes the actual guarantee: whatever
-        # the model reasoned, the final answer is forced to be one of the
-        # real function names.
-        context_text = reasoning_prompt + reasoning_text + "\nFunction:"
         selected = self._decoder.choose(context_text, choices)
 
         for fn in self.functions:
@@ -240,19 +236,21 @@ class FunctionCallingPipeline(BaseModel):
         )
 
         llm_prompt = (
-            "Extract parameter values from a request. Copy text exactly as "
-            "it appears -- do not compute, solve, or transform anything. "
-            "Return ONLY JSON.\n\n"
+            "Extract parameter values from a request. "
+            "Copy text exactly as it appears -- do not compute, solve, or transform anything. "
+            "The parameter name may differ from the wording in the request -- extract by meaning, not by name.\n\n"
 
+            # teaches: numbers, multiple params
             "Function: fn_calculate_discount(price: number, percent: number)\n"
             "Request: Apply a discount of 15 percent to a price of 80\n"
             'JSON: {"price":[80],"percent":[15]}\n\n'
 
+            # teaches: multiple string params
             "Function: fn_lookup_record(record_id: string, table: string)\n"
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
             'JSON: {"record_id":["Alpha-12"],"table":["inventory"]}\n\n'
 
-            f"Function: {function.name}({param_spec})\n"
+            f"Function: {function.name}({param_spec}) Description: {function.description}\n"
             f"Request: {prompt}\n"
             "JSON:"
         )
