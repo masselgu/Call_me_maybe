@@ -81,7 +81,8 @@ class FunctionCallingPipeline(BaseModel):
         function_list_text = (
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
-            "Count the number of values in the request carefully.\n"
+            "Carefully count how many distinct values the request provides, "
+            "and match it to the function with the same number of parameters.\n"
             "Only answer with the exact function name. Do not explain "
             "anything.\n\n"
             "Available functions:\n"
@@ -93,12 +94,13 @@ class FunctionCallingPipeline(BaseModel):
             param_count = len(fn.parameters)
             function_list_text += (
                 f"- {fn.name}({params})"
-                f" [{param_count} parameter(s)]: {fn.description}\n"
+                f" [requires exactly {param_count} parameter(s)]: "
+                f"{fn.description}\n"
             )
 
         context_text = (
             function_list_text
-            + f"\nUser request: {prompt}\nFunction:"
+            + f"\nRequest: {prompt}\nFunction:"
         )
         selected = self._decoder.choose(context_text, choices)
 
@@ -113,6 +115,7 @@ class FunctionCallingPipeline(BaseModel):
         prompt: str,
         function: FunctionDefinition,
     ) -> dict[str, Any]:
+
         llm_candidates = self._llm_propose_values(
             prompt,
             function,
@@ -265,7 +268,7 @@ class FunctionCallingPipeline(BaseModel):
 
         raw = self._free_generate(
             llm_prompt,
-            max_tokens=30,
+            max_tokens=15 * len(function.parameters),
             stop_chars=("}",),
         )
 
