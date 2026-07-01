@@ -295,3 +295,4 @@ class FunctionCallingPipeline(BaseModel):
                 name: []
                 for name in function.parameters
             }
+
