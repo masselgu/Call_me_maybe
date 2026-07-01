@@ -156,47 +156,29 @@ class FunctionCallingPipeline(BaseModel):
         Returns:
             dict mapping parameter names to typed values.
         """
-        llm_candidates = self._llm_propose_values(
-            prompt,
-            function,
-        )
+        llm_candidates = self._llm_propose_values(prompt, function)
         parameters: dict[str, Any] = {}
-        used: set[str] = set()
+
         for name, spec in function.parameters.items():
-            values = self._parameter_candidates(
-                llm_candidates,
-                name,
-                spec.type,
+            value = self._parameter_candidates(
+                llm_candidates, name, spec.type
             )
-
-            values = [
-                value
-                for value in values
-                if str(value) not in used
-            ] or values
-
-            choices = [json.dumps(value) for value in values]
-            text = (
-                f"Function: {function.name}\n"
-                f"Request: {prompt}\n"
-                f"Parameter: {name}\n"
-                f"Type: {spec.type}\n"
-                f"Choices: {choices}\n"
-                "Answer:"
-            )
-            picked = self._decoder.choose(text, choices)
-            parameters[name] = json.loads(picked)
-            used.add(str(parameters[name]))
+            if value is None:
+                print(
+                    f"[WARN] could not extract '{name}' "
+                    f"({spec.type}), returning None"
+                )
+            parameters[name] = value
 
         return parameters
 
     def _parameter_candidates(
         self,
-        llm_candidates: dict[str, list[Any]],
+        llm_candidates: dict[str, Any],
         param_name: str,
         param_type: str,
-    ) -> list[Any]:
-        """Convert raw candidate values to the correct Python type.
+    ) -> Any:
+        """Convert raw candidate value to the correct Python type.
 
         Args:
             llm_candidates: raw values proposed by _llm_propose_values.
@@ -204,40 +186,40 @@ class FunctionCallingPipeline(BaseModel):
             param_type: expected type (number, integer, boolean, string).
 
         Returns:
-            list of typed candidate values, with safe fallbacks.
+            typed value, or safe fallback if extraction failed.
         """
-        values = []
+        value = llm_candidates.get(param_name)
 
-        for value in llm_candidates.get(param_name, []):
+        if value is not None:
             try:
                 if param_type == "integer":
-                    values.append(int(value))
+                    return int(value)
                 elif param_type == "number":
-                    values.append(float(value))
+                    return float(value)
                 elif param_type == "boolean":
                     if isinstance(value, bool):
-                        values.append(value)
+                        return value
+                    if str(value).lower() == "true":
+                        return True
+                    if str(value).lower() == "false":
+                        return False
                 else:
-                    values.append(str(value))
+                    return str(value)
             except (ValueError, TypeError):
-                continue
+                pass
 
-        if values:
-            return values
-
-        if param_type == "boolean":
-            return [True, False]
+        # extraction failed -- type-specific fallback
         if param_type == "integer":
-            return [0]
+            return 0
         if param_type == "number":
-            return [0.0]
-        return [""]
+            return 0.0
+        return ""
 
     def _llm_propose_values(
         self,
         prompt: str,
         function: FunctionDefinition,
-    ) -> dict[str, list[Any]]:
+    ) -> dict[str, Any]:
         """Extract parameter values using constrained token-by-token decoding.
 
         At each step logits are masked so the model can only emit tokens
@@ -253,7 +235,7 @@ class FunctionCallingPipeline(BaseModel):
             function: the selected FunctionDefinition.
 
         Returns:
-            dict mapping parameter names to lists of candidate values.
+            dict mapping parameter names to typed values.
         """
         param_spec = ", ".join(
             f"{name}: {spec.type}"
@@ -269,11 +251,11 @@ class FunctionCallingPipeline(BaseModel):
 
             "Function: fn_calculate_discount(price: number, percent: number)\n"
             "Request: Apply a discount of 15 percent to a price of 80\n"
-            'JSON: {"price":[80],"percent":[15]}\n\n'
+            'JSON: {"price":80,"percent":15}\n\n'
 
             "Function: fn_lookup_record(record_id: string, table: string)\n"
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
-            'JSON: {"record_id":["Alpha-12"],"table":["inventory"]}\n\n'
+            'JSON: {"record_id":"Alpha-12","table":"inventory"}\n\n'
 
             f"Function: {function.name}({param_spec}) "
             f"Description: {function.description}\n"
@@ -284,6 +266,17 @@ class FunctionCallingPipeline(BaseModel):
         arg_types = [
             spec.type for spec in function.parameters.values()
         ]
+
+        # pre-cache allowed tokens per unique type to avoid
+        # recomputing the full vocabulary scan on every token step
+        token_cache: dict[tuple[str, bool], list[int]] = {}
+        for arg_type in arg_types:
+            for strict in (True, False):
+                key = (arg_type, strict)
+                if key not in token_cache:
+                    token_cache[key] = self._allowed_tokens(
+                        [arg_type], prompt, 1 if strict else 2
+                    )
 
         ids = self._decoder._encode(llm_prompt)
         generated: list[int] = []
@@ -302,7 +295,9 @@ class FunctionCallingPipeline(BaseModel):
 
             if ":" in chosen_text.strip():
                 count += 1
-                valids = self._allowed_tokens(arg_types, prompt, count)
+                arg_type = arg_types[0] if arg_types else "string"
+                strict = (count == 1)
+                valids = token_cache.get((arg_type, strict), [])
 
             if valids:
                 masked = np.full(
@@ -331,16 +326,13 @@ class FunctionCallingPipeline(BaseModel):
             start = raw.index("{")
             end = raw.rindex("}") + 1
             parsed = json.loads(raw[start:end])
-            result = {}
-            for name in function.parameters:
-                value = parsed.get(name, [])
-                if not isinstance(value, list):
-                    value = [value]
-                result[name] = value
-            return result
+            return {
+                name: parsed.get(name)
+                for name in function.parameters
+            }
         except Exception:
             return {
-                name: []
+                name: None
                 for name in function.parameters
             }
 
@@ -353,7 +345,9 @@ class FunctionCallingPipeline(BaseModel):
         """Return valid token IDs for the current value position.
 
         Enforces schema compliance at the token level:
-        - number/integer: only digit tokens and numeric terminators
+        - number: only float/digit tokens and terminators
+        - integer: only digit tokens and terminators (no dot)
+        - boolean: only true/false tokens and terminators
         - string (count==1, strict): only tokens verbatim in the prompt
         - string (count>1, loose): any non-newline token
 
@@ -366,10 +360,11 @@ class FunctionCallingPipeline(BaseModel):
             list of allowed token IDs for the current generation step.
         """
         valid: list[int] = []
-        arg_type = arg_types[0] if arg_types else "string"
+        index = min(count - 1, len(arg_types) - 1) if count > 0 else 0
+        arg_type = arg_types[index] if arg_types else "string"
         strict_copy = (count == 1)
-        terminate_number = {",", '"', "'", "}", "."}
         terminate_string = {",", '"', "'", "}"}
+        terminate_number = {",", '"', "'", "}"}
 
         for tid in list(self._decoder.vocabulary.ids):
             try:
@@ -394,18 +389,28 @@ class FunctionCallingPipeline(BaseModel):
             if not text:
                 continue
 
-            if arg_type in {"number", "integer"}:
-                if text.isdigit():
+            if arg_type == "number":
+                if text.replace(".", "", 1).lstrip("-").isdigit():
                     valid.append(tid)
+                elif any(s in text for s in terminate_number):
+                    valid.append(tid)
+
+            elif arg_type == "integer":
                 if text.lstrip("-").isdigit():
                     valid.append(tid)
-                if any(s in text for s in terminate_number):
+                elif any(s in text for s in terminate_number):
                     valid.append(tid)
+
+            elif arg_type == "boolean":
+                if text.lower() in {"true", "false"}:
+                    valid.append(tid)
+                elif any(s in text for s in terminate_string):
+                    valid.append(tid)
+
             else:
                 if strict_copy:
-                    if text and text in prompt:
-                        if "\n" not in text and "\r" not in text:
-                            valid.append(tid)
+                    if text in prompt and "\n" not in text and "\r" not in text:
+                        valid.append(tid)
                     if any(s in text for s in terminate_string):
                         valid.append(tid)
                 else:
