@@ -191,7 +191,7 @@ class FunctionCallingPipeline(BaseModel):
         pieces: list[str] = []
         chosen_text = ""
         max_tokens = 15 * len(function.parameters)
-        terminators = {'"', ","}
+        terminators = {","}
         valids: list[int] = []
         param_index = 0
 
