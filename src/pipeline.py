@@ -1,5 +1,3 @@
-"""Simple function calling pipeline."""
-
 import json
 import sys
 from typing import Any
@@ -49,18 +47,7 @@ class FunctionCallingPipeline(BaseModel):
             print(f"error: failed to load vocabulary: {e}")
             sys.exit(1)
 
-    def run(
-        self,
-        prompts: list[PromptItem],
-    ) -> list[FunctionCallResult]:
-        """Run the pipeline on a list of prompts.
-
-        Args:
-            prompts: list of PromptItem to process.
-
-        Returns:
-            list of FunctionCallResult with name and parameters.
-        """
+    def run(self, prompts: list[PromptItem]) -> list[FunctionCallResult]:
         results: list[FunctionCallResult] = []
         print(f"Processing {len(prompts)} prompts...\n")
         start_time = time.time()
@@ -93,29 +80,15 @@ class FunctionCallingPipeline(BaseModel):
         )
         return results
 
-    def _select_function(
-        self,
-        prompt: str,
-    ) -> FunctionDefinition:
-        """Select the best matching function for the prompt.
-
-        Uses constrained decoding via ChoiceDecoder to guarantee
-        the selected name is always one of the known function names.
-
-        Args:
-            prompt: natural language user request.
-
-        Returns:
-            The matching FunctionDefinition.
-        """
+    def _select_function(self, prompt: str) -> FunctionDefinition:
         choices = [fn.name for fn in self.functions]
 
         function_list_text = (
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
             "Carefully count how many distinct values the request provides, "
-            "and match it to the function with the same number of parameters.\n"
-            "Only answer with the exact function name. Do not explain "
+            "and match it to the function with the same number of parameters."
+            "\nOnly answer with the exact function name. Do not explain "
             "anything.\n\n"
             "Available functions:\n"
         )
@@ -130,10 +103,7 @@ class FunctionCallingPipeline(BaseModel):
                 f"{fn.description}\n"
             )
 
-        context_text = (
-            function_list_text
-            + f"\nRequest: {prompt}\nFunction:"
-        )
+        context_text = (function_list_text + f"\nRequest: {prompt}\nFunction:")
         selected = self._decoder.choose(context_text, choices)
 
         for fn in self.functions:
@@ -142,52 +112,19 @@ class FunctionCallingPipeline(BaseModel):
 
         raise ValueError("function not found")
 
-    def _select_parameters(
-        self,
-        prompt: str,
-        function: FunctionDefinition,
-    ) -> dict[str, Any]:
-        """Extract and validate all parameters for the selected function.
-
-        Args:
-            prompt: natural language user request.
-            function: the selected FunctionDefinition.
-
-        Returns:
-            dict mapping parameter names to typed values.
-        """
+    def _select_parameters(self, prompt: str,
+                           function: FunctionDefinition) -> dict[str, Any]:
         llm_candidates = self._llm_propose_values(prompt, function)
         parameters: dict[str, Any] = {}
 
         for name, spec in function.parameters.items():
-            value = self._parameter_candidates(
-                llm_candidates, name, spec.type
-            )
-            if value is None:
-                print(
-                    f"[WARN] could not extract '{name}' "
-                    f"({spec.type}), returning None"
-                )
+            value = self._parameter_candidates(llm_candidates, name, spec.type)
             parameters[name] = value
 
         return parameters
 
-    def _parameter_candidates(
-        self,
-        llm_candidates: dict[str, Any],
-        param_name: str,
-        param_type: str,
-    ) -> Any:
-        """Convert raw candidate value to the correct Python type.
-
-        Args:
-            llm_candidates: raw values proposed by _llm_propose_values.
-            param_name: name of the parameter being resolved.
-            param_type: expected type (number, integer, boolean, string).
-
-        Returns:
-            typed value, or safe fallback if extraction failed.
-        """
+    def _parameter_candidates(self, llm_candidates: dict[str, Any],
+                              param_name: str, param_type: str) -> Any:
         value = llm_candidates.get(param_name)
 
         if value is not None:
@@ -208,35 +145,14 @@ class FunctionCallingPipeline(BaseModel):
             except (ValueError, TypeError):
                 pass
 
-        # extraction failed -- type-specific fallback
         if param_type == "integer":
             return 0
         if param_type == "number":
             return 0.0
         return ""
 
-    def _llm_propose_values(
-        self,
-        prompt: str,
-        function: FunctionDefinition,
-    ) -> dict[str, Any]:
-        """Extract parameter values using constrained token-by-token decoding.
-
-        At each step logits are masked so the model can only emit tokens
-        that keep the output both syntactically valid JSON and
-        schema-compliant:
-        - number/integer fields: only digit tokens and terminators
-        - string fields (first value): only tokens verbatim in the prompt
-        - string fields (subsequent): any non-newline token
-        - boolean fields: handled via string path (true/false in prompt)
-
-        Args:
-            prompt: natural language user request.
-            function: the selected FunctionDefinition.
-
-        Returns:
-            dict mapping parameter names to typed values.
-        """
+    def _llm_propose_values(self, prompt: str,
+                            function: FunctionDefinition) -> dict[str, Any]:
         param_spec = ", ".join(
             f"{name}: {spec.type}"
             for name, spec in function.parameters.items()
@@ -263,20 +179,12 @@ class FunctionCallingPipeline(BaseModel):
             "JSON:"
         )
 
-        arg_types = [
-            spec.type for spec in function.parameters.values()
-        ]
+        arg_types = [spec.type for spec in function.parameters.values()]
 
-        # pre-cache allowed tokens per unique type to avoid
-        # recomputing the full vocabulary scan on every token step
-        token_cache: dict[tuple[str, bool], list[int]] = {}
+        token_cache: dict[str, list[int]] = {}
         for arg_type in arg_types:
-            for strict in (True, False):
-                key = (arg_type, strict)
-                if key not in token_cache:
-                    token_cache[key] = self._allowed_tokens(
-                        [arg_type], prompt, 1 if strict else 2
-                    )
+            if arg_type not in token_cache:
+                token_cache[arg_type] = self._get_valid_tokens(arg_type)
 
         ids = self._decoder._encode(llm_prompt)
         generated: list[int] = []
@@ -285,7 +193,7 @@ class FunctionCallingPipeline(BaseModel):
         max_tokens = 15 * len(function.parameters)
         terminators = {'"', ","}
         valids: list[int] = []
-        count = 0
+        param_index = 0
 
         for _ in range(max_tokens):
             logits = np.array(
@@ -294,15 +202,12 @@ class FunctionCallingPipeline(BaseModel):
             )
 
             if ":" in chosen_text.strip():
-                count += 1
-                arg_type = arg_types[0] if arg_types else "string"
-                strict = (count == 1)
-                valids = token_cache.get((arg_type, strict), [])
+                arg_type = (arg_types[param_index]
+                            if param_index < len(arg_types) else "string")
+                valids = token_cache.get(arg_type, [])
 
             if valids:
-                masked = np.full(
-                    len(logits), float("-inf"), dtype=np.float64
-                )
+                masked = np.full(len(logits), float("-inf"), dtype=np.float64)
                 for tid in valids:
                     if tid < len(logits):
                         masked[tid] = logits[tid]
@@ -316,6 +221,7 @@ class FunctionCallingPipeline(BaseModel):
 
             if any(ch in chosen_text.strip() for ch in terminators):
                 valids = []
+                param_index += 1
 
             if "}" in chosen_text:
                 break
@@ -336,35 +242,10 @@ class FunctionCallingPipeline(BaseModel):
                 for name in function.parameters
             }
 
-    def _allowed_tokens(
-        self,
-        arg_types: list[str],
-        prompt: str,
-        count: int,
-    ) -> list[int]:
-        """Return valid token IDs for the current value position.
-
-        Enforces schema compliance at the token level:
-        - number: only float/digit tokens and terminators
-        - integer: only digit tokens and terminators (no dot)
-        - boolean: only true/false tokens and terminators
-        - string (count==1, strict): only tokens verbatim in the prompt
-        - string (count>1, loose): any non-newline token
-
-        Args:
-            arg_types: ordered list of parameter types.
-            prompt: original user prompt for verbatim string extraction.
-            count: number of values generated so far (1-indexed).
-
-        Returns:
-            list of allowed token IDs for the current generation step.
-        """
+    def _get_valid_tokens(self, arg_type: str) -> list[int]:
         valid: list[int] = []
-        index = min(count - 1, len(arg_types) - 1) if count > 0 else 0
-        arg_type = arg_types[index] if arg_types else "string"
-        strict_copy = (count == 1)
-        terminate_string = {",", '"', "'", "}"}
-        terminate_number = {",", '"', "'", "}"}
+        terminate_string: set[str] = {",", '"', "}"}
+        numeric_chars: set[str] = {",", '"', "}", ".", "-"}
 
         for tid in list(self._decoder.vocabulary.ids):
             try:
@@ -372,49 +253,30 @@ class FunctionCallingPipeline(BaseModel):
             except Exception:
                 continue
 
-            if raw_token.replace(
-                "\u0120", " "
-            ).replace("\u010a", "\n") == " ":
+            if raw_token.replace("\u0120", " ").replace("\u010a", "\n") == " ":
                 if arg_type not in {"number", "integer"}:
                     valid.append(tid)
                 continue
 
-            text = (
-                raw_token
-                .replace("\u0120", " ")
-                .replace("\u010a", "\n")
-                .strip()
-            )
+            text = (raw_token.replace("\u0120", " ").replace("\u010a", "\n")
+                    .strip())
 
             if not text:
                 continue
 
-            if arg_type == "number":
-                if text.replace(".", "", 1).lstrip("-").isdigit():
+            if arg_type in {"number", "integer"}:
+                if text.isdigit():
                     valid.append(tid)
-                elif any(s in text for s in terminate_number):
+                if text.lstrip("-").replace(".", "", 1).isdigit():
                     valid.append(tid)
-
-            elif arg_type == "integer":
-                if text.lstrip("-").isdigit():
+                if text == "-":
                     valid.append(tid)
-                elif any(s in text for s in terminate_number):
+                if any(s in text for s in numeric_chars):
                     valid.append(tid)
-
-            elif arg_type == "boolean":
-                if text.lower() in {"true", "false"}:
-                    valid.append(tid)
-                elif any(s in text for s in terminate_string):
-                    valid.append(tid)
-
             else:
-                if strict_copy:
-                    if text in prompt and "\n" not in text and "\r" not in text:
-                        valid.append(tid)
-                    if any(s in text for s in terminate_string):
-                        valid.append(tid)
-                else:
-                    if text and "\n" not in text and "\r" not in text:
-                        valid.append(tid)
+                if any(s in text for s in terminate_string):
+                    valid.append(tid)
+                elif text and "\n" not in text and "\r" not in text:
+                    valid.append(tid)
 
         return valid

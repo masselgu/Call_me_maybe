@@ -1,5 +1,3 @@
-"""CLI entry point."""
-
 import sys
 from src.parser import load_functions, load_prompts, parse_args, write_results
 from src.pipeline import FunctionCallingPipeline
@@ -17,7 +15,7 @@ def main() -> None:
         ).run(prompts)
         write_results(args.output, results)
     except Exception as e:
-        print(f"error: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
 
 

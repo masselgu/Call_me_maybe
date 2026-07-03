@@ -1,5 +1,3 @@
-"""Validated data models used by the function-calling pipeline."""
-
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,20 +7,16 @@ JsonType = Literal["string", "number", "integer", "boolean"]
 
 class ParameterDefinition(BaseModel):
     """Describe one parameter accepted by a callable function."""
-
     type: JsonType
-    description: str | None = None
 
 
 class ReturnDefinition(BaseModel):
     """Describe the return value of a function."""
-
     type: JsonType
 
 
 class FunctionDefinition(BaseModel):
     """Describe an available function and its JSON schema."""
-
     name: str
     description: str
     parameters: dict[str, ParameterDefinition] = Field(default_factory=dict)
@@ -40,13 +34,11 @@ class FunctionDefinition(BaseModel):
 
 class PromptItem(BaseModel):
     """Input prompt read from the tests file."""
-
     prompt: str
 
 
 class FunctionCallResult(BaseModel):
     """Output record required by the subject."""
-
     model_config = ConfigDict(extra="forbid")
 
     prompt: str

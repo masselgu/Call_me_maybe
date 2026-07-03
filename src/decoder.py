@@ -1,5 +1,3 @@
-"""Simple constrained decoder."""
-
 import json
 from typing import Any
 import numpy as np
@@ -59,18 +57,11 @@ class ChoiceDecoder(BaseModel):
                 dtype=np.float64,
             )
 
-            masked = np.full_like(
-                logits,
-                float("-inf"),
-            )
+            masked = np.full_like(logits, float("-inf"))
 
             for token_id in valid:
-                if (
-                    self.vocabulary.has_id(token_id)
-                    and token_id < len(logits)
-                ):
+                if self.vocabulary.has_id(token_id):
                     masked[token_id] = logits[token_id]
-
             generated.append(int(np.argmax(masked)))
 
     def _encode(self, text: str) -> list[int]:

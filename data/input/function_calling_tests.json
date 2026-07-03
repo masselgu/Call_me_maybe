@@ -1,35 +1,22 @@
 [
-  {
-    "prompt": "What is the sum of 2 and 3?"
-  },
-  {
-    "prompt": "What is the sum of 265 and 345?"
-  },
-  {
-    "prompt": "Greet shrek"
-  },
-  {
-    "prompt": "Greet john"
-  },
-  {
-    "prompt": "Reverse the string 'hello'"
-  },
-  {
-    "prompt": "Reverse the string 'world'"
-  },
-  {
-    "prompt": "What is the square root of 16?"
-  },
-  {
-    "prompt": "Calculate the square root of 144"
-  },
-  {
-    "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"
-  },
-  {
-    "prompt": "Replace all vowels in 'Programming is fun' with asterisks"
-  },
-  {
-    "prompt": "Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'"
-  }
+  {"prompt": "Raise 2 to the power of 10"},
+  {"prompt": "What is 3 to the power of 4?"},
+  {"prompt": "Clamp the value 150 between 0 and 100"},
+  {"prompt": "Keep 7.5 within the range 1.0 to 5.0"},
+  {"prompt": "Send an email to alice@mail.com with subject 'Hello' and body 'How are you?'"},
+  {"prompt": "Send an email to bob@company.com with subject 'Meeting' and body 'Please join at 10am'"},
+  {"prompt": "Create a product called 'Laptop' with price 999.99, stock 50, available true"},
+  {"prompt": "Create a product called 'Headphones' with price 49.99, stock 0, available false"},
+  {"prompt": "Log an event from source 'auth-service' with message 'Login failed', severity 3, critical true"},
+  {"prompt": "Log an event from source 'db' with message 'Connection timeout', severity 5, critical false"},
+  {"prompt": "Translate 'Good morning' from English to Spanish"},
+  {"prompt": "Translate 'Merci beaucoup' from French to English"},
+  {"prompt": "Is 'racecar' a palindrome?"},
+  {"prompt": "Check if 'hello' is a palindrome"},
+  {"prompt": "What is the absolute value of -42?"},
+  {"prompt": "Get the absolute value of 7.5"},
+  {"prompt": "Generate a username for first name 'John', last name 'Doe', birth year 1995"},
+  {"prompt": "Create a username from first name 'Ana', last name 'Garcia', birth year 2001"},
+  {"prompt": "Set an alarm called 'Wake up' at 07:00, repeat daily true"},
+  {"prompt": "Set an alarm called 'Lunch break' at 12:30, repeat daily false"}
 ]

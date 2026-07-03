@@ -1,5 +1,3 @@
-"""CLI and JSON parsing helpers."""
-
 import json
 import sys
 from pathlib import Path
@@ -18,7 +16,6 @@ DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 
 class CliArguments(BaseModel):
     """Validated command-line arguments."""
-
     functions_definition: Path
     input: Path
     output: Path
