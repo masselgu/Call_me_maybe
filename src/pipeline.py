@@ -191,7 +191,6 @@ class FunctionCallingPipeline(BaseModel):
         pieces: list[str] = []
         chosen_text = ""
         max_tokens = 15 * len(function.parameters)
-        terminators = {","}
         valids: list[int] = []
         param_index = 0
 
@@ -219,7 +218,7 @@ class FunctionCallingPipeline(BaseModel):
             chosen_text = self._model.decode([next_id])
             pieces.append(chosen_text)
 
-            if any(ch in chosen_text.strip() for ch in terminators):
+            if "," in chosen_text.strip():
                 valids = []
                 param_index += 1
 

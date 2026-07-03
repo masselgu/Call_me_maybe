@@ -1,22 +1,35 @@
 [
-  {"prompt": "Raise 2 to the power of 10"},
-  {"prompt": "What is 3 to the power of 4?"},
-  {"prompt": "Clamp the value 150 between 0 and 100"},
-  {"prompt": "Keep 7.5 within the range 1.0 to 5.0"},
-  {"prompt": "Send an email to alice@mail.com with subject 'Hello' and body 'How are you?'"},
-  {"prompt": "Send an email to bob@company.com with subject 'Meeting' and body 'Please join at 10am'"},
-  {"prompt": "Create a product called 'Laptop' with price 999.99, stock 50, available true"},
-  {"prompt": "Create a product called 'Headphones' with price 49.99, stock 0, available false"},
-  {"prompt": "Log an event from source 'auth-service' with message 'Login failed', severity 3, critical true"},
-  {"prompt": "Log an event from source 'db' with message 'Connection timeout', severity 5, critical false"},
-  {"prompt": "Translate 'Good morning' from English to Spanish"},
-  {"prompt": "Translate 'Merci beaucoup' from French to English"},
-  {"prompt": "Is 'racecar' a palindrome?"},
-  {"prompt": "Check if 'hello' is a palindrome"},
-  {"prompt": "What is the absolute value of -42?"},
-  {"prompt": "Get the absolute value of 7.5"},
-  {"prompt": "Generate a username for first name 'John', last name 'Doe', birth year 1995"},
-  {"prompt": "Create a username from first name 'Ana', last name 'Garcia', birth year 2001"},
-  {"prompt": "Set an alarm called 'Wake up' at 07:00, repeat daily true"},
-  {"prompt": "Set an alarm called 'Lunch break' at 12:30, repeat daily false"}
+  {
+    "prompt": "What is the product of 3 and 5?"
+  },
+  {
+    "prompt": "What is the product of 12 and 4?"
+  },
+  {
+    "prompt": "Is 4 an even number?"
+  },
+  {
+    "prompt": "Is 7 an even number?"
+  },
+  {
+    "prompt": "Calculate compound interest on 1234567.89 at 0.0375 rate for 23 years"
+  },
+  {
+    "prompt": "Execute SQL query 'SELECT * FROM users' on the production database"
+  },
+  {
+    "prompt": "Run the query 'INSERT INTO logs VALUES (1, 2, 3)' on the system database"
+  },
+  {
+    "prompt": "Read the file at /home/user/data.json with utf-8 encoding"
+  },
+  {
+    "prompt": "Read C:\\Users\\john\\config.ini with latin-1 encoding"
+  },
+  {
+    "prompt": "Format template: Hello {user}'s profile!"
+  },
+  {
+    "prompt": "Format template: Say \"hello\" to {name}"
+  }
 ]

@@ -1,99 +1,89 @@
 [
   {
-    "name": "fn_power",
-    "description": "Raise a base number to an exponent and return the result.",
+    "name": "fn_multiply_numbers",
+    "description": "Multiply two numbers together and return their product.",
     "parameters": {
-      "base": {"type": "number"},
-      "exponent": {"type": "number"}
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
     },
-    "returns": {"type": "number"}
+    "returns": {
+      "type": "number"
+    }
   },
   {
-    "name": "fn_clamp",
-    "description": "Clamp a value between a minimum and maximum bound.",
+    "name": "fn_is_even",
+    "description": "Check if an integer is even, returns True if even, False if odd.",
     "parameters": {
-      "value": {"type": "number"},
-      "min_val": {"type": "number"},
-      "max_val": {"type": "number"}
+      "n": {
+        "type": "integer"
+      }
     },
-    "returns": {"type": "number"}
+    "returns": {
+      "type": "boolean"
+    }
   },
   {
-    "name": "fn_send_email",
-    "description": "Send an email to a recipient with a subject and body.",
+    "name": "fn_calculate_compound_interest",
+    "description": "Calculate compound interest: principal * (1 + rate)^years.",
     "parameters": {
-      "recipient": {"type": "string"},
-      "subject": {"type": "string"},
-      "body": {"type": "string"}
+      "principal": {
+        "type": "number"
+      },
+      "rate": {
+        "type": "number"
+      },
+      "years": {
+        "type": "integer"
+      }
     },
-    "returns": {"type": "boolean"}
+    "returns": {
+      "type": "number"
+    }
   },
   {
-    "name": "fn_create_product",
-    "description": "Create a product listing with a name, price, stock count and availability status.",
+    "name": "fn_execute_sql_query",
+    "description": "Execute a SQL query on a specified database.",
     "parameters": {
-      "product_name": {"type": "string"},
-      "price": {"type": "number"},
-      "stock": {"type": "integer"},
-      "available": {"type": "boolean"}
+      "query": {
+        "type": "string"
+      },
+      "database": {
+        "type": "string"
+      }
     },
-    "returns": {"type": "string"}
+    "returns": {
+      "type": "string"
+    }
   },
   {
-    "name": "fn_log_event",
-    "description": "Log a system event with a source, message, severity level and whether it is critical.",
+    "name": "fn_read_file",
+    "description": "Read a file from the given path with specified encoding.",
     "parameters": {
-      "source": {"type": "string"},
-      "message": {"type": "string"},
-      "severity": {"type": "integer"},
-      "is_critical": {"type": "boolean"}
+      "path": {
+        "type": "string"
+      },
+      "encoding": {
+        "type": "string"
+      }
     },
-    "returns": {"type": "string"}
+    "returns": {
+      "type": "string"
+    }
   },
   {
-    "name": "fn_translate_text",
-    "description": "Translate a text from one language to another.",
+    "name": "fn_format_template",
+    "description": "Format a template string containing placeholders.",
     "parameters": {
-      "text": {"type": "string"},
-      "source_language": {"type": "string"},
-      "target_language": {"type": "string"}
+      "template": {
+        "type": "string"
+      }
     },
-    "returns": {"type": "string"}
-  },
-  {
-    "name": "fn_is_palindrome",
-    "description": "Check whether a string is a palindrome.",
-    "parameters": {
-      "word": {"type": "string"}
-    },
-    "returns": {"type": "boolean"}
-  },
-  {
-    "name": "fn_absolute_value",
-    "description": "Return the absolute value of a number.",
-    "parameters": {
-      "n": {"type": "number"}
-    },
-    "returns": {"type": "number"}
-  },
-  {
-    "name": "fn_generate_username",
-    "description": "Generate a username from a first name, last name and birth year.",
-    "parameters": {
-      "first_name": {"type": "string"},
-      "last_name": {"type": "string"},
-      "birth_year": {"type": "integer"}
-    },
-    "returns": {"type": "string"}
-  },
-  {
-    "name": "fn_set_alarm",
-    "description": "Set an alarm with a label, time, and whether it repeats daily.",
-    "parameters": {
-      "label": {"type": "string"},
-      "time": {"type": "string"},
-      "repeat_daily": {"type": "boolean"}
-    },
-    "returns": {"type": "string"}
+    "returns": {
+      "type": "string"
+    }
   }
 ]
