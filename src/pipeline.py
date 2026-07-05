@@ -165,9 +165,9 @@ class FunctionCallingPipeline(BaseModel):
             "The parameter name may differ from the wording in the request"
             " -- extract by meaning, not by name.\n\n"
 
-            "Function: fn_calculate_discount(price: number, percent: number)\n"
-            "Request: Apply a discount of 15 percent to a price of 80\n"
-            'JSON: {"price":80,"percent":15}\n\n'
+            "Function: fn_regex_replace(text: string, pattern: string, sub: string)\n"
+            'Request: Substitute the word "bird" with "fish" in "The bird flew over another bird"\n'
+            'JSON: {"text":"The bird flew over another bird","pattern":"\\\\bbird\\\\b","sub":"fish"}\n\n'
 
             "Function: fn_lookup_record(record_id: string, table: string)\n"
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
