@@ -165,13 +165,16 @@ class FunctionCallingPipeline(BaseModel):
             "The parameter name may differ from the wording in the request"
             " -- extract by meaning, not by name.\n\n"
 
-            "Function: fn_regex_replace(text: string, regex: string, sub: string)\n"
-            'Request: Substitute the word "cat" with "dog" in "The cat sat on the mat with another cat"\n'
-            'JSON: {"text":"The cat sat on the mat with another cat","regex":"\\\\bcat\\\\b","sub":"dog"}\n\n'
+            "Function: fn_regex_replace"
+            "(text: string, regex: string, sub: string)\n"
+            "Request: Substitute the word \"cat\" with \"dog\" in "
+            "\"The cat sat on the mat with another cat\"\n"
+            "JSON: {\"text\":\"The cat sat on the mat with another cat\","
+            "\"regex\":\"\\\\bcat\\\\b\",\"sub\":\"dog\"}\n\n"
 
             "Function: fn_lookup_record(record_id: string, table: string)\n"
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"
-            'JSON: {"record_id":"Alpha-12","table":"inventory"}\n\n'
+            "JSON: {\"record_id\":\"Alpha-12\",\"table\":\"inventory\"}\n\n"
 
             f"Function: {function.name}({param_spec}) "
             f"Description: {function.description}\n"
@@ -243,39 +246,40 @@ class FunctionCallingPipeline(BaseModel):
 
     def _get_valid_tokens(self, arg_type: str) -> list[int]:
         valid: list[int] = []
-        terminate_string: set[str] = {",", '"', "}"}
-        numeric_chars: set[str] = {",", '"', "}", ".", "-"}
+        numeric_chars: set[str] = {",", "}", ".", "-"}
 
-        for tid in list(self._decoder.vocabulary.ids):
+        for id in self._decoder.vocabulary.ids:
             try:
-                raw_token = self._model.decode([tid])
+                raw_token = self._model.decode([id])
             except Exception:
                 continue
 
-            if raw_token.replace("\u0120", " ").replace("\u010a", "\n") == " ":
+            if raw_token == " ":
                 if arg_type not in {"number", "integer"}:
-                    valid.append(tid)
+                    valid.append(id)
                 continue
 
-            text = (raw_token.replace("\u0120", " ").replace("\u010a", "\n")
-                    .strip())
-
-            if not text:
+            if not raw_token.strip():
                 continue
 
-            if arg_type in {"number", "integer"}:
-                if text.isdigit():
-                    valid.append(tid)
-                if text.lstrip("-").replace(".", "", 1).isdigit():
-                    valid.append(tid)
-                if text == "-":
-                    valid.append(tid)
-                if any(s in text for s in numeric_chars):
-                    valid.append(tid)
+            if arg_type in {"integer", "number"}:
+                if raw_token.isdigit():
+                    valid.append(id)
+                if raw_token.lstrip("-").replace(".", "", 1).isdigit():
+                    valid.append(id)
+                if any(s in raw_token for s in numeric_chars):
+                    valid.append(id)
+
+            elif arg_type == "boolean":
+                if raw_token == "true" or raw_token == "false":
+                    valid.append(id)
+                    continue
+                if raw_token in {",", "}"}:
+                    valid.append(id)
+                    continue
             else:
-                if any(s in text for s in terminate_string):
-                    valid.append(tid)
-                elif text and "\n" not in text and "\r" not in text:
-                    valid.append(tid)
+                clean = raw_token.strip()
+                if clean and all(ord(ch) >= 32 for ch in raw_token):
+                    valid.append(id)
 
         return valid
