@@ -1,12 +1,10 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 from pydantic import BaseModel, ValidationError
 from src.models import FunctionCallResult, FunctionDefinition, PromptItem
 
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 DEFAULT_FUNCTIONS = Path("data/input/functions_definition.json")
 DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
@@ -70,7 +68,7 @@ def read_json(path: Path) -> Any:
         raise ValueError(f"invalid JSON in {path}: line {e.lineno}")
 
 
-def load_list(path: Path, model: type[ModelT], label: str) -> list[ModelT]:
+def load_list(path: Path, model: Any, label: str) -> list[Any]:
     """Load and validate a JSON array."""
     data = read_json(path)
     if not isinstance(data, list):
