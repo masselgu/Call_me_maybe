@@ -9,21 +9,18 @@ JsonType = Literal["string", "number", "integer", "boolean"]
 class ParameterDefinition(BaseModel):
     """Describe one parameter accepted by a callable function."""
     model_config = ConfigDict(extra="forbid")
-
     type: JsonType
 
 
 class ReturnDefinition(BaseModel):
     """Describe the return value of a function."""
     model_config = ConfigDict(extra="forbid")
-
     type: JsonType
 
 
 class FunctionDefinition(BaseModel):
     """Describe an available function and its JSON schema."""
     model_config = ConfigDict(extra="forbid")
-
     name: str
     description: str
     parameters: dict[str, ParameterDefinition]
@@ -62,7 +59,6 @@ class FunctionDefinition(BaseModel):
 class PromptItem(BaseModel):
     """Input prompt read from the tests file."""
     model_config = ConfigDict(extra="forbid")
-
     prompt: str
 
     @field_validator("prompt")
@@ -78,7 +74,6 @@ class FunctionCallResult(BaseModel):
     """Output record required by the subject."""
 
     model_config = ConfigDict(extra="forbid")
-
     prompt: str
     name: str
     parameters: dict[str, Any]

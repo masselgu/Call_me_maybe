@@ -14,8 +14,11 @@ def main() -> None:
             model_name=args.model,
         ).run(prompts)
         write_results(args.output, results)
-    except Exception as e:
+    except ValueError as e:
         print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexcpected error: {e}")
         sys.exit(1)
 
 

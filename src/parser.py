@@ -17,7 +17,7 @@ class CliArguments(BaseModel):
     functions_definition: Path
     input: Path
     output: Path
-    model: str = DEFAULT_MODEL
+    model: str
 
 
 def parse_args() -> CliArguments:
@@ -52,7 +52,7 @@ def parse_args() -> CliArguments:
 
         i += 1
 
-    return CliArguments.model_validate(result)
+    return CliArguments(**result)
 
 
 def read_json(path: Path) -> Any:
@@ -74,7 +74,7 @@ def load_list(path: Path, model: Any, label: str) -> list[Any]:
     if not isinstance(data, list):
         raise ValueError(f"{label} must be a JSON array")
     try:
-        return [model.model_validate(item) for item in data]
+        return [model(**item) for item in data]
     except ValidationError as e:
         raise ValueError(f"invalid {label}: {e}")
 
@@ -98,7 +98,7 @@ def load_prompts(path: Path) -> list[PromptItem]:
 def write_results(path: Path, results: list[FunctionCallResult]) -> None:
     """Write output JSON results."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = [item.model_dump(mode="json") for item in results]
+    data = [item.model_dump(mode="json") for item in results]
     with open(path, "w", encoding="utf-8") as file:
-        json.dump(payload, file, indent=2, ensure_ascii=False)
+        json.dump(data, file, indent=2, ensure_ascii=False)
         file.write("\n")

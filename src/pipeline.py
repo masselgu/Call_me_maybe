@@ -149,6 +149,8 @@ class FunctionCallingPipeline(BaseModel):
             return 0
         if param_type == "number":
             return 0.0
+        if param_type == "boolean":
+            return False
         return ""
 
     def _llm_propose_values(self, prompt: str,

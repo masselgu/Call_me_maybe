@@ -1,11 +1,11 @@
 import json
 from typing import Any
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Vocabulary(BaseModel):
-    ids: set[int] = Field(default_factory=set)
+    ids: set[int]
 
     @classmethod
     def from_path(cls, path: str) -> "Vocabulary":
