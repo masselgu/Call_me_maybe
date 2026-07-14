@@ -23,11 +23,11 @@ class FunctionCallingPipeline(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         try:
             from llm_sdk import Small_LLM_Model
-            print(f"Loading model {self.model_name}...")
+            print(f"Loading model {self.model_name}...\n")
             self._model = Small_LLM_Model(
                 model_name=self.model_name
             )
-            print(f"Model {self.model_name} loaded successfully.\n")
+            print(f"\nModel {self.model_name} loaded successfully.\n")
         except ImportError:
             print("error: llm_sdk not found. Please install it.")
             sys.exit(1)
@@ -104,7 +104,7 @@ class FunctionCallingPipeline(BaseModel):
             )
 
         context_text = (function_list_text + f"\nRequest: {prompt}\nFunction:")
-        selected = self._decoder.choose(context_text, choices)
+        selected = self._decoder.choose_function(context_text, choices)
 
         for fn in self.functions:
             if fn.name == selected:
@@ -221,6 +221,7 @@ class FunctionCallingPipeline(BaseModel):
             next_id = int(np.argmax(masked))
             generated.append(next_id)
             chosen_text = self._model.decode([next_id])
+            print(f"Generated token: {chosen_text} (id: {next_id})")
             pieces.append(chosen_text)
 
             if "," in chosen_text.strip():
@@ -267,8 +268,10 @@ class FunctionCallingPipeline(BaseModel):
             if arg_type in {"integer", "number"}:
                 if raw_token.isdigit():
                     valid.append(id)
+                    continue
                 if raw_token.lstrip("-").replace(".", "", 1).isdigit():
                     valid.append(id)
+                    continue
                 if any(s in raw_token for s in numeric_chars):
                     valid.append(id)
 

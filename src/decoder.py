@@ -24,7 +24,7 @@ class ChoiceDecoder(BaseModel):
     model: Any
     vocabulary: Vocabulary
 
-    def choose(self, context: str, choices: list[str]) -> str:
+    def choose_function(self, context: str, choices: list[str]) -> str:
         if len(choices) == 1:
             return choices[0]
 
