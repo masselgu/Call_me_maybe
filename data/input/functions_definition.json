@@ -1,14 +1,21 @@
 [
   {
-    "name": "fn_create_user",
-    "description": "Create a user",
+    "name": "fn_add_numbers",
+    "description": "Add two numbers together and return their sum.",
     "parameters": {
-      "name": { "type": "string" },
-      "age": { "type": "integer" },
-      "premium": { "type": "boolean" }
+      "a": {"type": "number"},
+      "b": {"type": "number"}
     },
-    "returns": {
-      "type": "string"
-    }
+    "returns": {"type": "number"}
+  },
+  {
+    "name": "fn_add_three_numbers",
+    "description": "Add three numbers together and return their sum.",
+    "parameters": {
+      "a": {"type": "number"},
+      "b": {"type": "number"},
+      "c": {"type": "number"}
+    },
+    "returns": {"type": "number"}
   }
 ]

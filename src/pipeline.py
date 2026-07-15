@@ -239,7 +239,6 @@ class FunctionCallingPipeline(BaseModel):
             next_id = int(np.argmax(masked))
             generated.append(next_id)
             chosen_text = self._model.decode([next_id])
-            print(f"Generated token: {chosen_text.strip()} (ID: {next_id})")
             pieces.append(chosen_text)
 
             if "," in chosen_text.strip():

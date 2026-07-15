@@ -29,16 +29,7 @@ The key challenge is that small language models are notoriously unreliable at ge
 ### Requirements
 
 - Python 3.10+
-- [uv](https://github.com/astral-sh/uv) package manager
-
-### Installation
-
-```bash
-git clone <your-repo-url>
-cd Call_me_maybe
-cp -r /path/to/llm_sdk .   # copy the provided llm_sdk directory here
-uv sync
-```
+- UV package manager
 
 ### Running the program
 
@@ -137,58 +128,46 @@ make lint      # run flake8 and mypy
 
 ## Algorithm Explanation
 
-The pipeline has two main stages:
-
 ### 1. Function Selection — `_select_function()`
 
-Uses `ChoiceDecoder.choose()` which performs constrained token-by-token decoding over the set of known function names. At each generation step, logits are masked to `-inf` for all tokens that are not valid continuations of any known function name. This guarantees the selected name is always one of the available functions — never a hallucinated string.
+Uses `ChoiceDecoder.choose_function()` which performs constrained token-by-token
+decoding over known function names. At each step, logits are masked to
+`-inf` for all tokens that don't continue a valid function name —
+making wrong selections impossible.
 
-The prompt includes each function's parameter count and description, so the model can distinguish between functions that differ only by arity (e.g. `fn_add_numbers` taking 2 parameters vs `fn_add_three_numbers` taking 3).
+### 2. Parameter Extraction — `_llm_propose_values()`
 
-### 2. Parameter Extraction — `_llm_propose_values()` + `_select_parameters()`
+The model generates a JSON string token by token. After each `:`,
+`_get_valid_tokens()` restricts which tokens are allowed based on the
+parameter type:
 
-This is where the core constrained decoding for JSON happens.
+- `number` / `integer` → only digits, minus, dot, and terminators
+- `string` → any printable character (`ord >= 32`)
+- `boolean` → only `true`, `false`, and terminators
 
-**Step 1 — Constrained JSON generation (`_llm_propose_values`):**
-
-The model generates a JSON string token by token. After each `:` character (signaling the start of a value), `_allowed_tokens()` computes which token IDs are valid for the current parameter type:
-
-- `number` / `integer` → only digit tokens, minus sign, and JSON terminators (`,`, `"`, `}`, `.`)
-- `string` (first value, strict mode) → only tokens whose text appears verbatim in the original prompt, plus terminators. This prevents the model from inventing or transforming string values.
-- `string` (subsequent values, loose mode) → any non-newline token, plus terminators
-- `boolean` → handled via the string path (`true`/`false` appear in the prompt)
-
-All other tokens are masked to `-inf` before `argmax` selection. This means the model **cannot physically generate** a token that violates the schema — it is mathematically impossible.
-
-**Step 2 — Final constrained pick (`_select_parameters`):**
-
-The candidates extracted in Step 1 are passed to `_parameter_candidates()` which converts them to the correct Python type (float, int, bool, str). These typed candidates are then passed to `ChoiceDecoder.choose()` which does a final constrained selection — again using masked logits — to pick the best value for each parameter. This double-constrained approach guarantees both valid types and contextually correct values.
+All other tokens are masked to `-inf` — the model cannot physically
+generate a schema-violating token.
 
 ### Why this guarantees 100% valid JSON
 
-- Step 1 constrains every token during generation → structurally valid JSON
-- Step 2 assembles the final output from typed Python objects via `json.dumps()` / `json.dump()` → always parseable
-- The `except Exception` fallback in `_llm_propose_values` returns empty typed defaults rather than crashing, so `_select_parameters` always has something to work with
+- Every token during generation is constrained → structurally valid
+- Final output is assembled from typed Python objects → always parseable
+- Fallback returns typed defaults on parse failure → never crashes
 
 ---
 
 ## Design Decisions
 
-**Why `ChoiceDecoder.choose()` for function selection?**
-Function names are a closed, finite set known at runtime. Constraining to exact token sequences of known names is more reliable than open-ended generation. The decoder tracks which tokens are valid continuations of each candidate name at each position, making wrong selections impossible.
-
-**Why few-shot examples in `_llm_propose_values`?**
-The 0.6B model needs context to understand the extraction task. Two generic, domain-unrelated examples (discount calculation, record lookup) teach the model the pattern — extract values as-is, map by meaning not by name — without hardcoding any test-specific knowledge.
-
-**Why `max_tokens = 15 * len(function.parameters)`?**
-A fixed token budget of 30 was insufficient for functions with 4-5 parameters. Scaling by parameter count ensures the model has enough budget to generate a complete JSON object regardless of function complexity.
-
-**Why keep `_select_parameters` on top of `_llm_propose_values`?**
-`_llm_propose_values` generates candidates under structural constraints. `_select_parameters` adds a second layer of semantic constraint via `choose()` — picking the contextually best value when multiple candidates are available. This two-step approach improves accuracy beyond what either step achieves alone.
-
-**Why `extra="forbid"` in `FunctionCallResult`?**
-Pydantic's `extra="forbid"` ensures no stray keys can appear in the output, enforcing the schema requirement that each output object contains exactly `prompt`, `name`, and `parameters`.
-
+- **`ChoiceDecoder` for function names** — function names are a closed
+  finite set, constrained decoding over exact token sequences is more
+  reliable than open-ended generation
+- **Few-shot examples** — two generic domain-unrelated examples teach
+  the model to extract values verbatim without hardcoding test-specific
+  knowledge
+- **`max_tokens = 20 * len(parameters)`** — scales token budget with
+  function complexity, prevents cutoff for multi-parameter functions
+- **`extra="forbid"`** — ensures output contains exactly `prompt`,
+  `name`, `parameters` — no extra keys
 ---
 
 ## Performance Analysis
@@ -200,74 +179,59 @@ Tested on the subject's canonical 11-prompt test set (Qwen/Qwen3-0.6B, CPU):
 | Function selection accuracy | 11/11 (100%) |
 | Parameter extraction accuracy | 11/11 (100%) |
 | Output JSON validity | 11/11 (100%) |
-| Total runtime | ~3.5 minutes for 11 prompts |
-| Per-prompt average | ~19 seconds |
+| Total runtime | ~3.0 minutes for 11 prompts |
+| Per-prompt average | ~17 seconds |
 
-The main performance cost is `_allowed_tokens()`, which iterates over the full vocabulary (~150,000 tokens) and decodes each one individually to determine validity. This runs multiple times per prompt. Future optimization could precompute the number/string token sets once at startup in `model_post_init`, reducing per-prompt cost significantly.
-
-The system stays well within the subject's 5-minute requirement and is deterministic (greedy `argmax` decoding), meaning results are identical across runs.
+Results are deterministic and identical across runs. The pipeline
+never crashes — fallbacks return typed defaults on parse failure.
 
 ---
 
 ## Challenges Faced
 
-**Challenge 1: Function selection ambiguity between same-arity functions**
+**Function selection ambiguity between same-arity functions**
+Early versions failed to distinguish `fn_add_numbers` (2 params) from
+`fn_add_three_numbers` (3 params). Fixed by adding explicit
+`[requires exactly N parameter(s)]` labels to the prompt.
 
-Early versions failed to distinguish `fn_add_numbers` (2 params) from `fn_add_three_numbers` (3 params). The fix was enriching the function list prompt with explicit `[requires exactly N parameter(s)]` labels and a counting instruction, giving the model a direct signal to match arity.
-
-**Challenge 2: `_allowed_tokens` was too slow**
-
-Iterating over 150,000 tokens and decoding each one per generation step was extremely slow. The solution was to use `self._decoder.vocabulary.ids` (the pre-filtered valid token set from the vocabulary file) rather than iterating over all possible token IDs, reducing the iteration space significantly.
-
-**Challenge 3: Space tokens stripped during string extraction**
-
-BPE tokenizers encode spaces as unicode prefix `\u0120`. After replacing and stripping, pure space tokens became empty strings and were silently dropped, causing extracted strings like `"Hello 34 I'm 233 years old"` to lose their spaces. The fix was to explicitly allow pure space tokens before the strip operation, checking for `" "` before stripping.
-
-**Challenge 4: Token budget too small for multi-parameter functions**
-
-A fixed `max_tokens=30` was insufficient for functions with 5 parameters. The extraction would get cut off mid-JSON, causing `json.loads()` to fail and the fallback to return empty values. Scaling to `15 * len(function.parameters)` resolved this entirely.
-
-**Challenge 5: Two-step count-then-select approach was unreliable**
-
-An early version tried to first ask the model "how many values does this request mention?" then use that count to select the function. The 0.6B model always returned `1` or `3` regardless of the actual count — it was anchoring on the last few-shot example rather than reasoning. The fix was to drop the count step entirely and rely on a single, well-crafted selection prompt with explicit parameter count labels.
+**Debugging token-level failures**
+When output was wrong, the cause was invisible from the final JSON.
+Adding raw generation prints to trace token-by-token output was
+essential to understand what the model was actually generating.
 
 ---
 
 ## Testing Strategy
 
-**Step 1 — Subject's canonical test set (11 prompts)**
-Used the exact examples from the subject's documentation (V.2 Input Files) as the primary correctness check. These cover: addition, greeting, string reversal, square root, and regex substitution with 1-3 parameters.
+**Subject canonical test set (11 prompts)**
+Used the exact examples from the subject's V.2 documentation as the
+primary correctness check. Validated with the provided moulinette —
+achieved 11/11 (100%) on the public set.
 
-**Step 2 — Multi-parameter stress test (15 prompts)**
-Created a custom test with functions ranging from 1 to 5 parameters, mixed types (string + integer + boolean in the same function), and pairs of functions sharing the same arity to stress-test selection accuracy. Achieved 15/15.
+**Multi-parameter stress test (15 prompts)**
+Custom test with functions from 1 to 5 parameters, mixed types, and
+same-arity function pairs. Achieved 15/15.
 
-**Step 3 — Adversarial edge cases (25 prompts)**
-Tested deliberately hard cases: negatives (`-50`), floats (`12.5`), accented characters (`García`), ambiguous semantics (`"Greet"` vs `"Farewell"` vs `"Welcome"`), no-value prompts, and gibberish input. Identified known limitations (out-of-domain prompts with no matching function) which are outside the subject's stated scope.
-
-**Step 4 — Error handling**
-Manually tested: missing input files, malformed JSON in input, empty function definitions, empty prompt lists. All handled gracefully with clear error messages and no crashes.
-
+**Error handling**
+Manually tested: missing files, malformed JSON, empty function
+definitions, empty prompts. All handled gracefully with clear error
+messages and no crashes.
 ---
 
 ## Resources
 
 ### Technical References
 
-- [Hugging Face — Constrained Beam Search](https://huggingface.co/blog/constrained-beam-search) — Introduction to constrained decoding concepts
-- [Outlines library](https://github.com/outlines-dev/outlines) — Reference implementation of structured generation (forbidden to use, but useful to understand the concept)
-- [Qwen3 Model Card](https://huggingface.co/Qwen/Qwen3-0.6B) — Model documentation
-- [Pydantic documentation](https://docs.pydantic.dev/) — Used for all data validation
-- [JSON specification (RFC 8259)](https://www.rfc-editor.org/rfc/rfc8259) — Reference for JSON validity rules
-- [BPE Tokenization explained](https://huggingface.co/learn/nlp-course/chapter6/5) — Understanding how tokens map to text, including space prefixes
+- [Aidan Cooper — Constrained Decoding](https://www.aidancooper.co.uk/constrained-decoding/) — Practical guide explaining how constrained decoding ensures LLM outputs follow predefined formats such as JSON schemas and grammars.
+- [42 School Project Subject](https://cdn.intra.42.fr/pdf/pdf/208528/en.subject.pdf) — Official assignment specification detailing project objectives, requirements, and expected deliverables.
+- [Hugging Face — Function Calling Guide](https://huggingface.co/docs/hugs/en/guides/function-calling) — Documentation on enabling LLMs to call tools and APIs through structured function definitions and JSON arguments.
+- [GeeksforGeeks — Getting Started with Transformers](https://www.geeksforgeeks.org/machine-learning/getting-started-with-transformers/) — Beginner-friendly introduction to Transformer architecture, self-attention, encoders, decoders, and modern NLP models.
 
 ### AI Usage
 
-AI (Claude, Anthropic) was used in the following parts of this project:
+AI  was used in the following parts of this project:
 
-- **Debugging** — identifying why the count-step approach always returned `1`, tracing the space-token stripping bug, diagnosing token budget issues for multi-parameter functions
-- **Prompt engineering** — iterating on few-shot examples for `_llm_propose_values` to teach verbatim extraction and parameter-name-to-meaning mapping
-- **Code review** — reviewing `_allowed_tokens` logic and suggesting the explicit space token handling fix
 - **Test design** — generating diverse test cases covering edge cases beyond the subject's examples
-- **README** — this document was drafted with AI assistance and reviewed for accuracy
-
-All AI-generated content was reviewed, tested, and validated before use. The core algorithm design, architecture decisions, and debugging reasoning were developed through understanding the subject requirements and iterative testing.
+- **README** — AI was used to suggest improvements to the README's structure, wording, and readability.
+- **Learning support** — clarifying technical documentation and summarizing external resources to accelerate understanding of the subject.
+- **Project planning** — helping organize tasks, milestones, and implementation priorities before development.

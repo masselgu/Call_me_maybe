@@ -1,8 +1,6 @@
 [
-  {
-    "prompt": "Create user John age 100000000000000000000000000000000000000000000000 premium true"
-  },
-  {
-    "prompt": "Create user Alice age 30 premium false"
-  }
+  {"prompt": "What is the sum of 2 and 3?"},
+  {"prompt": "What is the sum of 2 and 3 and 8?"},
+  {"prompt": "Add 10 and 20"},
+  {"prompt": "Add 1 and 2 and 3"}
 ]
