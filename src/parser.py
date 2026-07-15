@@ -24,7 +24,7 @@ def parse_args() -> CliArguments:
     """Parse CLI args from sys.argv."""
     args = sys.argv[1:]
 
-    result = {
+    result: dict[str, Any] = {
         "functions_definition": DEFAULT_FUNCTIONS,
         "input": DEFAULT_INPUT,
         "output": DEFAULT_OUTPUT,

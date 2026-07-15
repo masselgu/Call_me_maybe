@@ -22,7 +22,7 @@ class FunctionCallingPipeline(BaseModel):
 
     def model_post_init(self, _: Any) -> None:
         try:
-            from llm_sdk import Small_LLM_Model
+            from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
             print(f"Loading model {self.model_name}...\n")
             self._model = Small_LLM_Model(
                 model_name=self.model_name
@@ -87,9 +87,9 @@ class FunctionCallingPipeline(BaseModel):
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
             "Carefully count how many distinct values the request provides, "
-            "and match it to the function with the same number of parameters.\n"
-            "IMPORTANT: If the request does not match ANY available function, "
-            "you MUST select fn_unknown.\n"
+            "and match it to the function with the same number of parameters."
+            "\nIMPORTANT: If the request does not match ANY available function"
+            ", you MUST select fn_unknown.\n"
             "Only answer with the exact function name. Do not explain "
             "anything.\n\n"
             "Available functions:\n"
