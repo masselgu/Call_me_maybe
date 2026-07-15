@@ -8,7 +8,7 @@ debug:
 	@uv run python -m pdb -m src
 
 clean:
-	@rm -rf __pycache__ .mypy_cache .pytest_cache
+	@rm -rf __pycache__ .mypy_cache
 	@rm -rf src/__pycache__ data/output
 
 lint:

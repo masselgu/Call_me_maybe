@@ -20,7 +20,7 @@ class FunctionCallingPipeline(BaseModel):
     _model: Any = PrivateAttr()
     _decoder: ChoiceDecoder = PrivateAttr()
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, _: Any) -> None:
         try:
             from llm_sdk import Small_LLM_Model
             print(f"Loading model {self.model_name}...\n")
@@ -81,14 +81,16 @@ class FunctionCallingPipeline(BaseModel):
         return results
 
     def _select_function(self, prompt: str) -> FunctionDefinition:
-        choices = [fn.name for fn in self.functions]
+        choices = [fn.name for fn in self.functions] + ["fn_unknown"]
 
         function_list_text = (
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
             "Carefully count how many distinct values the request provides, "
-            "and match it to the function with the same number of parameters."
-            "\nOnly answer with the exact function name. Do not explain "
+            "and match it to the function with the same number of parameters.\n"
+            "IMPORTANT: If the request does not match ANY available function, "
+            "you MUST select fn_unknown.\n"
+            "Only answer with the exact function name. Do not explain "
             "anything.\n\n"
             "Available functions:\n"
         )
@@ -102,9 +104,25 @@ class FunctionCallingPipeline(BaseModel):
                 f" [requires exactly {param_count} parameter(s)]: "
                 f"{fn.description}\n"
             )
+        function_list_text += (
+            "- fn_unknown(): use this when no function matches "
+            "the request.\n\n"
+            "Examples of when to use fn_unknown:\n"
+            "Request: Add 2 and 3 -> no addition function available "
+            "-> fn_unknown\n"
+            "Request: What is the weather? -> no weather function "
+            "available -> fn_unknown\n"
+        )
 
-        context_text = (function_list_text + f"\nRequest: {prompt}\nFunction:")
+        context_text = (
+            function_list_text + f"\nRequest: {prompt}\nFunction:"
+        )
         selected = self._decoder.choose_function(context_text, choices)
+
+        if selected == "fn_unknown":
+            raise ValueError(
+                f"no matching function found for prompt: {prompt!r}"
+            )
 
         for fn in self.functions:
             if fn.name == selected:
@@ -142,7 +160,7 @@ class FunctionCallingPipeline(BaseModel):
                         return False
                 else:
                     return str(value)
-            except (ValueError, TypeError):
+            except ValueError:
                 pass
 
         if param_type == "integer":
@@ -195,7 +213,7 @@ class FunctionCallingPipeline(BaseModel):
         generated: list[int] = []
         pieces: list[str] = []
         chosen_text = ""
-        max_tokens = 15 * len(function.parameters)
+        max_tokens = 20 * len(function.parameters)
         valids: list[int] = []
         param_index = 0
 
@@ -211,17 +229,17 @@ class FunctionCallingPipeline(BaseModel):
                 valids = token_cache.get(arg_type, [])
 
             if valids:
-                masked = np.full(len(logits), float("-inf"), dtype=np.float64)
-                for tid in valids:
-                    if tid < len(logits):
-                        masked[tid] = logits[tid]
+                masked = np.full_like(logits, float("-inf"))
+                for id in valids:
+                    if self._decoder.vocabulary.has_id(id):
+                        masked[id] = logits[id]
             else:
                 masked = logits
 
             next_id = int(np.argmax(masked))
             generated.append(next_id)
             chosen_text = self._model.decode([next_id])
-            print(f"Generated token: {chosen_text} (id: {next_id})")
+            print(f"Generated token: {chosen_text.strip()} (ID: {next_id})")
             pieces.append(chosen_text)
 
             if "," in chosen_text.strip():
@@ -250,6 +268,7 @@ class FunctionCallingPipeline(BaseModel):
     def _get_valid_tokens(self, arg_type: str) -> list[int]:
         valid: list[int] = []
         numeric_chars: set[str] = {",", "}", ".", "-"}
+        boolean_chars: set[str] = {",", "}"}
 
         for id in self._decoder.vocabulary.ids:
             try:
@@ -279,7 +298,7 @@ class FunctionCallingPipeline(BaseModel):
                 if raw_token == "true" or raw_token == "false":
                     valid.append(id)
                     continue
-                if raw_token in {",", "}"}:
+                if any(s in raw_token for s in boolean_chars):
                     valid.append(id)
                     continue
             else:

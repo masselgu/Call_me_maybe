@@ -25,8 +25,6 @@ class ChoiceDecoder(BaseModel):
     vocabulary: Vocabulary
 
     def choose_function(self, context: str, choices: list[str]) -> str:
-        if len(choices) == 1:
-            return choices[0]
 
         encoded_choices = [
             (choice, self._encode(choice))
@@ -51,9 +49,7 @@ class ChoiceDecoder(BaseModel):
                     valid.add(ids[len(generated)])
 
             logits = np.array(
-                self.model.get_logits_from_input_ids(
-                    context_ids + generated
-                ),
+                self.model.get_logits_from_input_ids(context_ids + generated),
                 dtype=np.float64,
             )
 

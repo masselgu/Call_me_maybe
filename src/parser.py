@@ -76,7 +76,10 @@ def load_list(path: Path, model: Any, label: str) -> list[Any]:
     try:
         return [model(**item) for item in data]
     except ValidationError as e:
-        raise ValueError(f"invalid {label}: {e}")
+        error = e.errors()[0]
+        field = ".".join(str(x) for x in error["loc"])
+        msg = error["msg"]
+        raise ValueError(f"in {label}: {field} -> {msg}")
 
 
 def load_functions(path: Path) -> list[FunctionDefinition]:

@@ -53,6 +53,10 @@ class FunctionDefinition(BaseModel):
                 raise ValueError(
                     "parameter names cannot be empty"
                 )
+            if not name.isidentifier():
+                raise ValueError(
+                    "parameter names must be valid identifiers"
+                )
         return value
 
 
