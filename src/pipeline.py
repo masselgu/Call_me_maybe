@@ -121,7 +121,7 @@ class FunctionCallingPipeline(BaseModel):
 
         if selected == "fn_unknown":
             raise ValueError(
-                f"no matching function found for prompt: {prompt!r}"
+                f"no matching function found for prompt: {prompt}"
             )
 
         for fn in self.functions:
