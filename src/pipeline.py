@@ -13,7 +13,12 @@ from src.models import (
 
 
 class FunctionCallingPipeline(BaseModel):
+    """Pipeline that translates natural language prompts into function calls.
 
+    Attributes:
+        functions: List of available function definitions.
+        model_name: HuggingFace model identifier.
+    """
     functions: list[FunctionDefinition]
     model_name: str = "Qwen/Qwen3-0.6B"
 
@@ -21,6 +26,7 @@ class FunctionCallingPipeline(BaseModel):
     _decoder: ChoiceDecoder = PrivateAttr()
 
     def model_post_init(self, _: Any) -> None:
+        """Load the LLM and initialize the constrained decoder."""
         try:
             from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
             print(f"Loading model {self.model_name}...\n")
@@ -48,6 +54,14 @@ class FunctionCallingPipeline(BaseModel):
             sys.exit(1)
 
     def run(self, prompts: list[PromptItem]) -> list[FunctionCallResult]:
+        """Run the pipeline on a list of prompts.
+
+        Args:
+            prompts: List of natural language requests.
+
+        Returns:
+            List of function call results.
+        """
         results: list[FunctionCallResult] = []
         print(f"Processing {len(prompts)} prompts...\n")
         start_time = time.time()
@@ -81,6 +95,17 @@ class FunctionCallingPipeline(BaseModel):
         return results
 
     def _select_function(self, prompt: str) -> FunctionDefinition:
+        """Select the best matching function for the prompt.
+
+        Args:
+            prompt: Natural language user request.
+
+        Returns:
+            Matching FunctionDefinition.
+
+        Raises:
+            ValueError: If no function matches the prompt.
+        """
         choices = [fn.name for fn in self.functions] + ["fn_unknown"]
 
         function_list_text = (
@@ -132,6 +157,15 @@ class FunctionCallingPipeline(BaseModel):
 
     def _select_parameters(self, prompt: str,
                            function: FunctionDefinition) -> dict[str, Any]:
+        """Extract and type-cast all parameters for the selected function.
+
+        Args:
+            prompt: Natural language user request.
+            function: The selected FunctionDefinition.
+
+        Returns:
+            Dict mapping parameter names to typed values.
+        """
         llm_candidates = self._llm_propose_values(prompt, function)
         parameters: dict[str, Any] = {}
 
@@ -143,6 +177,16 @@ class FunctionCallingPipeline(BaseModel):
 
     def _parameter_candidates(self, llm_candidates: dict[str, Any],
                               param_name: str, param_type: str) -> Any:
+        """Convert a raw candidate value to the correct Python type.
+
+        Args:
+            llm_candidates: Raw values from _llm_propose_values.
+            param_name: Name of the parameter.
+            param_type: Expected type (number, integer, boolean, string).
+
+        Returns:
+            Typed value with safe fallback on failure.
+        """
         value = llm_candidates.get(param_name)
 
         if value is not None:
@@ -173,6 +217,15 @@ class FunctionCallingPipeline(BaseModel):
 
     def _llm_propose_values(self, prompt: str,
                             function: FunctionDefinition) -> dict[str, Any]:
+        """Generate parameter values using constrained token-by-token decoding.
+
+        Args:
+            prompt: Natural language user request.
+            function: The selected FunctionDefinition.
+
+        Returns:
+            Dict mapping parameter names to extracted raw values.
+        """
         param_spec = ", ".join(
             f"{name}: {spec.type}"
             for name, spec in function.parameters.items()
@@ -265,6 +318,14 @@ class FunctionCallingPipeline(BaseModel):
             }
 
     def _get_valid_tokens(self, arg_type: str) -> list[int]:
+        """Return valid token IDs for a given parameter type.
+
+        Args:
+            arg_type: Parameter type (number, integer, boolean, string).
+
+        Returns:
+            List of allowed token IDs for constrained decoding.
+        """
         valid: list[int] = []
         numeric_chars: set[str] = {",", "}", ".", "-"}
         boolean_chars: set[str] = {",", "}"}

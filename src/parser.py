@@ -13,7 +13,14 @@ DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 
 
 class CliArguments(BaseModel):
-    """Validated command-line arguments."""
+    """Validated command-line arguments.
+
+    Attributes:
+        functions_definition: Path to functions definition JSON.
+        input: Path to input prompts JSON.
+        output: Path to write results JSON.
+        model: HuggingFace model name to use.
+    """
     functions_definition: Path
     input: Path
     output: Path
@@ -21,7 +28,14 @@ class CliArguments(BaseModel):
 
 
 def parse_args() -> CliArguments:
-    """Parse CLI args from sys.argv."""
+    """Parse CLI arguments from sys.argv.
+
+    Returns:
+        Validated CliArguments with defaults applied.
+
+    Raises:
+        ValueError: If an unknown argument is provided.
+    """
     args = sys.argv[1:]
 
     result: dict[str, Any] = {
@@ -56,7 +70,17 @@ def parse_args() -> CliArguments:
 
 
 def read_json(path: Path) -> Any:
-    """Read JSON from disk with clear errors."""
+    """Read and parse a JSON file from disk.
+
+    Args:
+        path: Path to the JSON file.
+
+    Returns:
+        Parsed JSON content.
+
+    Raises:
+        ValueError: If file is missing, unreadable, or invalid JSON.
+    """
     try:
         with open(path, "r", encoding="utf-8") as file:
             return json.load(file)
@@ -69,7 +93,19 @@ def read_json(path: Path) -> Any:
 
 
 def load_list(path: Path, model: Any, label: str) -> list[Any]:
-    """Load and validate a JSON array."""
+    """Load and validate a JSON array into pydantic models.
+
+    Args:
+        path: Path to the JSON file.
+        model: Pydantic model class to validate each item.
+        label: Human-readable label for error messages.
+
+    Returns:
+        List of validated model instances.
+
+    Raises:
+        ValueError: If file is not an array or validation fails.
+    """
     data = read_json(path)
     if not isinstance(data, list):
         raise ValueError(f"{label} must be a JSON array")
@@ -83,7 +119,17 @@ def load_list(path: Path, model: Any, label: str) -> list[Any]:
 
 
 def load_functions(path: Path) -> list[FunctionDefinition]:
-    """Load available function definitions."""
+    """Load and validate function definitions from a JSON file.
+
+    Args:
+        path: Path to functions_definition.json.
+
+    Returns:
+        Non-empty list of FunctionDefinition instances.
+
+    Raises:
+        ValueError: If file is invalid or empty.
+    """
     functions = load_list(path, FunctionDefinition, "functions")
     if not functions:
         raise ValueError("function definitions cannot be empty")
@@ -91,7 +137,17 @@ def load_functions(path: Path) -> list[FunctionDefinition]:
 
 
 def load_prompts(path: Path) -> list[PromptItem]:
-    """Load input prompts."""
+    """Load and validate input prompts from a JSON file.
+
+    Args:
+        path: Path to function_calling_tests.json.
+
+    Returns:
+        Non-empty list of PromptItem instances.
+
+    Raises:
+        ValueError: If file is invalid or empty.
+    """
     prompts = load_list(path, PromptItem, "prompts")
     if not prompts:
         raise ValueError("prompts cannot be empty")
@@ -99,7 +155,12 @@ def load_prompts(path: Path) -> list[PromptItem]:
 
 
 def write_results(path: Path, results: list[FunctionCallResult]) -> None:
-    """Write output JSON results."""
+    """Write function call results to a JSON file.
+
+    Args:
+        path: Output file path.
+        results: List of FunctionCallResult to serialize.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     data = [item.model_dump(mode="json") for item in results]
     with open(path, "w", encoding="utf-8") as file:

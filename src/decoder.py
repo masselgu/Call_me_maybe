@@ -5,10 +5,23 @@ from pydantic import BaseModel
 
 
 class Vocabulary(BaseModel):
+    """Token vocabulary loaded from the model's vocab file.
+
+    Attributes:
+        ids: Set of all valid token IDs.
+    """
     ids: set[int]
 
     @classmethod
     def from_path(cls, path: str) -> "Vocabulary":
+        """Load vocabulary from a JSON file.
+
+        Args:
+            path: Path to the vocab.json file.
+
+        Returns:
+            Vocabulary instance with all token IDs.
+        """
         with open(path, "r", encoding="utf-8") as file:
             raw = json.load(file)
 
@@ -17,15 +30,41 @@ class Vocabulary(BaseModel):
         )
 
     def has_id(self, token_id: int) -> bool:
+        """Check if a token ID exists in the vocabulary.
+
+        Args:
+            token_id: The token ID to check.
+
+        Returns:
+            True if the token ID is valid.
+        """
         return token_id in self.ids
 
 
 class ChoiceDecoder(BaseModel):
+    """Constrained decoder that selects from a finite set of choices.
+
+    Attributes:
+        model: The LLM model instance.
+        vocabulary: The token vocabulary.
+    """
     model: Any
     vocabulary: Vocabulary
 
     def choose_function(self, context: str, choices: list[str]) -> str:
+        """Select the best matching choice using constrained decoding.
 
+        Masks all tokens that are not valid continuations of any
+        choice to -inf, guaranteeing the output is always one of
+        the provided choices.
+
+        Args:
+            context: The prompt context string.
+            choices: List of valid string choices to select from.
+
+        Returns:
+            The selected choice string.
+        """
         encoded_choices = [
             (choice, self._encode(choice))
             for choice in choices
@@ -61,6 +100,17 @@ class ChoiceDecoder(BaseModel):
             generated.append(int(np.argmax(masked)))
 
     def _encode(self, text: str) -> list[int]:
+        """Encode text into a list of token IDs.
+
+        Args:
+            text: The text to encode.
+
+        Returns:
+            List of integer token IDs.
+
+        Raises:
+            ValueError: If tokenization produces unexpected format.
+        """
         encoded = self.model.encode(text)
         raw = encoded.tolist()
         if isinstance(raw, list):
