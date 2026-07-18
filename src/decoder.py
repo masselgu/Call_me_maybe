@@ -65,6 +65,9 @@ class ChoiceDecoder(BaseModel):
         Returns:
             The selected choice string.
         """
+        if len(choices) == 1:
+            return choices[0]
+
         encoded_choices = [
             (choice, self._encode(choice))
             for choice in choices

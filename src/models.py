@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
-JsonType = Literal["string", "number", "integer", "boolean"]
+JsonType = Literal["string", "number", "integer", "boolean", "array", "object"]
 
 
 class ParameterDefinition(BaseModel):

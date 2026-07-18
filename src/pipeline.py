@@ -106,15 +106,13 @@ class FunctionCallingPipeline(BaseModel):
         Raises:
             ValueError: If no function matches the prompt.
         """
-        choices = [fn.name for fn in self.functions] + ["fn_unknown"]
+        choices = [fn.name for fn in self.functions]
 
         function_list_text = (
             "You are an AI function calling assistant.\n\n"
             "Your task is to choose the BEST function for the user request.\n"
             "Carefully count how many distinct values the request provides, "
             "and match it to the function with the same number of parameters."
-            "\nIMPORTANT: If the request does not match ANY available function"
-            ", you MUST select fn_unknown.\n"
             "Only answer with the exact function name. Do not explain "
             "anything.\n\n"
             "Available functions:\n"
@@ -129,25 +127,11 @@ class FunctionCallingPipeline(BaseModel):
                 f" [requires exactly {param_count} parameter(s)]: "
                 f"{fn.description}\n"
             )
-        function_list_text += (
-            "- fn_unknown(): use this when no function matches "
-            "the request.\n\n"
-            "Examples of when to use fn_unknown:\n"
-            "Request: Add 2 and 3 -> no addition function available "
-            "-> fn_unknown\n"
-            "Request: What is the weather? -> no weather function "
-            "available -> fn_unknown\n"
-        )
 
         context_text = (
             function_list_text + f"\nRequest: {prompt}\nFunction:"
         )
         selected = self._decoder.choose_function(context_text, choices)
-
-        if selected == "fn_unknown":
-            raise ValueError(
-                f"no matching function found for prompt: {prompt}"
-            )
 
         for fn in self.functions:
             if fn.name == selected:
