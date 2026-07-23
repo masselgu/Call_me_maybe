@@ -79,7 +79,14 @@ class ChoiceDecoder(BaseModel):
         while True:
             for choice, ids in encoded_choices:
                 if generated == ids:
-                    return choice
+                    is_prefix = any(
+                        other_ids[:len(ids)] == ids
+                        and len(other_ids) > len(ids)
+                        for other_choice, other_ids in encoded_choices
+                        if other_choice != choice
+                    )
+                    if not is_prefix:
+                        return choice
 
             valid: set[int] = set()
 
@@ -91,7 +98,9 @@ class ChoiceDecoder(BaseModel):
                     valid.add(ids[len(generated)])
 
             logits = np.array(
-                self.model.get_logits_from_input_ids(context_ids + generated),
+                self.model.get_logits_from_input_ids(
+                    context_ids + generated
+                ),
                 dtype=np.float64,
             )
 
@@ -101,6 +110,8 @@ class ChoiceDecoder(BaseModel):
                 if self.vocabulary.has_id(token_id):
                     masked[token_id] = logits[token_id]
             generated.append(int(np.argmax(masked)))
+
+        raise ValueError("no valid choice found")
 
     def _encode(self, text: str) -> list[int]:
         """Encode text into a list of token IDs.

@@ -222,12 +222,12 @@ class FunctionCallingPipeline(BaseModel):
             "The parameter name may differ from the wording in the request"
             " -- extract by meaning, not by name.\n\n"
 
-            "Function: fn_regex_replace"
+            "Function: fn_replace_regex"
             "(text: string, regex: string, sub: string)\n"
-            "Request: Substitute the word \"cat\" with \"dog\" in "
-            "\"The cat sat on the mat with another cat\"\n"
-            "JSON: {\"text\":\"The cat sat on the mat with another cat\","
-            "\"regex\":\"\\\\bcat\\\\b\",\"sub\":\"dog\"}\n\n"
+            "Request: Substitute the word \"fox\" with \"monkey\" in "
+            "\"The fox met a clever fox near the river\"\n"
+            "JSON: {\"text\":\"The fox met a clever fox near the river\","
+            "\"regex\":\"\\\\bfox\\\\b\",\"sub\":\"monkey\"}\n\n"
 
             "Function: fn_lookup_record(record_id: string, table: string)\n"
             "Request: Find the entry named 'Alpha-12' in table 'inventory'\n"

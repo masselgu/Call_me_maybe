@@ -69,6 +69,26 @@ def parse_args() -> CliArguments:
     return CliArguments(**result)
 
 
+def _check_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject JSON objects with duplicate keys.
+
+    Args:
+        pairs: List of key-value pairs from JSON parser.
+
+    Returns:
+        Dict of key-value pairs.
+
+    Raises:
+        ValueError: If any key appears more than once.
+    """
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError(f"duplicate key '{key}' in JSON object")
+        seen.add(key)
+    return dict(pairs)
+
+
 def read_json(path: Path) -> Any:
     """Read and parse a JSON file from disk.
 
@@ -79,11 +99,15 @@ def read_json(path: Path) -> Any:
         Parsed JSON content.
 
     Raises:
-        ValueError: If file is missing, unreadable, or invalid JSON.
+        ValueError: If file is missing, unreadable, invalid JSON,
+            or contains duplicate keys.
     """
     try:
         with open(path, "r", encoding="utf-8") as file:
-            return json.load(file)
+            return json.load(
+                file,
+                object_pairs_hook=_check_duplicate_keys
+            )
     except FileNotFoundError:
         raise ValueError(f"missing file: {path}")
     except PermissionError:
@@ -117,6 +141,25 @@ def load_list(path: Path, model: Any, label: str) -> list[Any]:
         msg = error["msg"]
         raise ValueError(f"in {label}: {field} -> {msg}")
 
+def check_duplicate_function_names(
+    functions: list[FunctionDefinition],
+) -> None:
+    """Reject duplicate function names.
+
+    Args:
+        functions: Validated function definitions.
+
+    Raises:
+        ValueError: If two functions share the same name.
+    """
+    seen: set[str] = set()
+
+    for function in functions:
+        if function.name in seen:
+            raise ValueError(
+                f"duplicate function name '{function.name}'"
+            )
+        seen.add(function.name)
 
 def load_functions(path: Path) -> list[FunctionDefinition]:
     """Load and validate function definitions from a JSON file.
@@ -133,6 +176,9 @@ def load_functions(path: Path) -> list[FunctionDefinition]:
     functions = load_list(path, FunctionDefinition, "functions")
     if not functions:
         raise ValueError("function definitions cannot be empty")
+    
+    check_duplicate_function_names(functions)
+    
     return functions
 
 

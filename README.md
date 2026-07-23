@@ -124,6 +124,13 @@ make lint      # run flake8 and mypy
 ]
 ```
 
+> [!NOTE]
+> **Function names and prompts should be clear and unambiguous.**
+>
+> - Prefer unique, descriptive function names that are easily distinguishable from one another.
+> - Avoid naming patterns where one function name is simply the beginning (prefix) of another, as this can make constrained decoding less reliable.
+> - Write prompts that clearly describe the intended operation to minimize ambiguity during function selection and parameter extraction.
+
 ---
 
 ## Algorithm Explanation
